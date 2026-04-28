@@ -65,12 +65,6 @@ func Status(ctx context.Context, _ []string) error {
 	return composeRun(ctx, []string{"ps"})
 }
 
-// Backup snapshots the docker volumes to an archive. Stub: real impl will
-// run a tiny alpine helper container that tars/zstds the volumes.
-func Backup(ctx context.Context, _ []string) error {
-	return fmt.Errorf("backup: not yet implemented")
-}
-
 // Doctor diagnoses common problems.
 func Doctor(ctx context.Context, _ []string) error {
 	checks := []struct {
