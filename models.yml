@@ -1,0 +1,43 @@
+# Models pulled on first boot. The wizard rewrites this file based on detected
+# hardware. Edit freely; `localmind up` re-applies it.
+#
+# Tags reference Ollama: https://ollama.com/library
+
+profiles:
+  cpu_low:
+    description: "CPU only, 8-16 GB RAM"
+    chat: qwen2.5:3b
+    embedding: nomic-embed-text
+    reasoning: null
+
+  cpu_mid:
+    description: "CPU only, 32 GB+ RAM"
+    chat: qwen2.5:7b
+    embedding: nomic-embed-text
+    reasoning: null
+
+  nvidia_12gb:
+    description: "NVIDIA GPU, 12 GB VRAM"
+    chat: qwen2.5:14b-instruct-q4_K_M
+    embedding: bge-m3
+    reasoning: null
+
+  nvidia_24gb:
+    description: "NVIDIA GPU, 24 GB VRAM"
+    chat: qwen2.5:32b-instruct-q4_K_M
+    embedding: bge-m3
+    reasoning: deepseek-r1:14b
+
+  apple_16gb:
+    description: "Apple Silicon, 16 GB unified RAM"
+    chat: qwen2.5:7b
+    embedding: nomic-embed-text
+    reasoning: null
+
+  apple_32gb_plus:
+    description: "Apple Silicon, 32+ GB unified RAM"
+    chat: qwen2.5:14b
+    embedding: bge-m3
+    reasoning: deepseek-r1:14b
+
+active_profile: cpu_low

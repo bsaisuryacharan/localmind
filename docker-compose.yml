@@ -1,0 +1,78 @@
+name: localmind
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  ollama:
+    <<: *restart
+    image: ollama/ollama:latest
+    container_name: localmind-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_NUM_PARALLEL: "2"
+
+  webui:
+    <<: *restart
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: localmind-webui
+    depends_on:
+      - ollama
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    volumes:
+      - webui:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: "${WEBUI_AUTH:-true}"
+      WEBUI_NAME: "localmind"
+      ENABLE_RAG_WEB_SEARCH: "false"
+      DEFAULT_USER_ROLE: "admin"
+
+  whisper:
+    <<: *restart
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    container_name: localmind-whisper
+    ports:
+      - "${WHISPER_PORT:-9000}:9000"
+    environment:
+      ASR_MODEL: "${WHISPER_MODEL:-base}"
+      ASR_ENGINE: faster_whisper
+
+  piper:
+    <<: *restart
+    image: rhasspy/wyoming-piper:latest
+    container_name: localmind-piper
+    ports:
+      - "${PIPER_PORT:-10200}:10200"
+    command: --voice ${PIPER_VOICE:-en_US-lessac-medium}
+    volumes:
+      - piper:/data
+
+  mcp:
+    <<: *restart
+    build:
+      context: ./mcp
+    container_name: localmind-mcp
+    depends_on:
+      - ollama
+    ports:
+      - "${MCP_PORT:-7800}:7800"
+    volumes:
+      - ./data:/data:ro
+      - mcp_index:/var/lib/localmind
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      DATA_DIR: /data
+      INDEX_DIR: /var/lib/localmind
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-nomic-embed-text}"
+
+volumes:
+  ollama:
+  webui:
+  piper:
+  mcp_index:

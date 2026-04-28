@@ -1,0 +1,23 @@
+# Overlay for Apple Silicon hosts.
+#
+# Docker Desktop on macOS does NOT pass the Apple GPU into containers.
+# The recommended path is to run Ollama natively on the host (`brew install ollama`)
+# and only run the auxiliary services in Docker.
+#
+# Apply with: docker compose -f docker-compose.yml -f compose/compose.gpu.apple.yml up -d
+
+services:
+  ollama:
+    profiles: [skip]
+
+  webui:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mcp:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: build wizard
+        working-directory: wizard
+        run: go build ./...
+      - name: vet wizard
+        working-directory: wizard
+        run: go vet ./...
+      - name: build mcp
+        working-directory: mcp
+        run: go build ./...
+      - name: vet mcp
+        working-directory: mcp
+        run: go vet ./...
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: build localmind binary
+        working-directory: wizard
+        run: go build -o ../bin/localmind ./cmd/localmind
+      - name: docker compose config validates
+        run: docker compose -f docker-compose.yml config > /dev/null
+      - name: smoke test
+        run: ./scripts/smoke.sh

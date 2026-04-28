@@ -1,0 +1,21 @@
+.env
+.env.local
+data/*
+!data/.gitkeep
+backups/
+*.log
+*.tar.zst
+
+# Go
+wizard/bin/
+mcp/bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
