@@ -74,6 +74,6 @@ commands:
   backup    snapshot all data to a tar.zst archive
   doctor    diagnose common problems
 
-run `localmind <command> -h` for command-specific flags.
+run 'localmind <command> -h' for command-specific flags.
 `)
 }
