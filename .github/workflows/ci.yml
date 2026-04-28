@@ -40,4 +40,4 @@ jobs:
       - name: docker compose config validates
         run: docker compose -f docker-compose.yml config > /dev/null
       - name: smoke test
-        run: ./scripts/smoke.sh
+        run: bash scripts/smoke.sh
