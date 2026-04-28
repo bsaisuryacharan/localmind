@@ -8,6 +8,7 @@ package wizard
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/localmind/localmind/wizard/internal/hwdetect"
+	"github.com/localmind/localmind/wizard/internal/profile"
 )
 
 // Init detects hardware, prints the picked profile, and writes .env.
@@ -50,9 +52,99 @@ WEBUI_AUTH=true
 	return nil
 }
 
-// Up brings the stack up with overlays appropriate to the host.
+// Up brings the stack up with overlays appropriate to the host. After a
+// successful compose up, kicks off the hardware profiler unless --no-profile
+// is passed or a previous result already exists. Profiler failures are logged
+// but never fail the Up command.
 func Up(ctx context.Context, args []string) error {
-	return composeRun(ctx, append([]string{"up", "-d"}, args...))
+	composeArgs, skipProfile := splitProfileFlag(args)
+	if err := composeRun(ctx, append([]string{"up", "-d"}, composeArgs...)); err != nil {
+		return err
+	}
+
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	if skipProfile {
+		return nil
+	}
+	if profile.ShouldSkip(root, false) {
+		fmt.Printf("==> profiler: skipping (existing %s; run `localmind profile --force` to re-run)\n",
+			profile.ProfilePath(root))
+		return nil
+	}
+	if _, err := profile.Run(ctx, profile.Config{
+		RepoRoot:      root,
+		OllamaBaseURL: ollamaURLFromEnv(root),
+	}); err != nil {
+		log.Printf("profiler: %v (continuing)", err)
+	}
+	return nil
+}
+
+// Profile runs the hardware profiler manually. Pass --force to re-run even
+// when a previous result exists.
+func Profile(ctx context.Context, args []string) error {
+	root, err := repoRoot()
+	if err != nil {
+		return err
+	}
+	force := false
+	for _, a := range args {
+		if a == "--force" || a == "-f" {
+			force = true
+		}
+	}
+	if profile.ShouldSkip(root, force) {
+		fmt.Printf("profiler already ran. pass --force to re-run.\nresult: %s\n",
+			profile.ProfilePath(root))
+		return nil
+	}
+	_, err = profile.Run(ctx, profile.Config{
+		RepoRoot:      root,
+		OllamaBaseURL: ollamaURLFromEnv(root),
+	})
+	return err
+}
+
+// splitProfileFlag pulls --no-profile out of the args list. The remaining
+// args are forwarded verbatim to docker compose.
+func splitProfileFlag(args []string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	skip := false
+	for _, a := range args {
+		if a == "--no-profile" {
+			skip = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, skip
+}
+
+// ollamaURLFromEnv reads OLLAMA_BASE_URL or OLLAMA_PORT from <root>/.env so
+// the profiler hits whatever port the user configured. Falls back to the
+// compose default.
+func ollamaURLFromEnv(root string) string {
+	envPath := filepath.Join(root, ".env")
+	body, err := os.ReadFile(envPath)
+	if err != nil {
+		return "http://localhost:11434"
+	}
+	port := "11434"
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if k, v, ok := strings.Cut(line, "="); ok {
+			switch strings.TrimSpace(k) {
+			case "OLLAMA_BASE_URL":
+				return strings.Trim(strings.TrimSpace(v), `"'`)
+			case "OLLAMA_PORT":
+				port = strings.Trim(strings.TrimSpace(v), `"'`)
+			}
+		}
+	}
+	return "http://localhost:" + port
 }
 
 // Down stops the stack.

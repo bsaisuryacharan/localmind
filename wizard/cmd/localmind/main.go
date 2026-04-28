@@ -44,6 +44,8 @@ func main() {
 		mustRun(wizard.Backup(ctx, args))
 	case "doctor":
 		mustRun(wizard.Doctor(ctx, args))
+	case "profile":
+		mustRun(wizard.Profile(ctx, args))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -73,6 +75,7 @@ commands:
   status    show container health
   backup    snapshot all data to a tar.zst archive
   doctor    diagnose common problems
+  profile   benchmark the active model and recommend a profile
 
 run 'localmind <command> -h' for command-specific flags.
 `)
