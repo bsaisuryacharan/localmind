@@ -9,7 +9,7 @@
 ## Linux / macOS
 
 ```bash
-curl -fsSL https://get.localmind.dev | sh
+curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.sh | sh
 localmind init
 localmind up
 ```
@@ -21,7 +21,7 @@ Open <http://localhost:3000>.
 Run PowerShell as Administrator:
 
 ```powershell
-iwr -useb https://get.localmind.dev/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.ps1 | iex
 localmind init
 localmind up
 ```

@@ -3,7 +3,7 @@
 Self-hosted AI in a box. One command, one machine, no cloud.
 
 ```bash
-curl -fsSL https://get.localmind.dev | sh
+curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.sh | sh
 ```
 
 That installs a single static binary, runs a setup wizard that detects your hardware (CPU / NVIDIA / Apple Silicon / RAM), picks the right model sizes for you, writes the compose files, and brings up the stack.
@@ -29,10 +29,10 @@ Each piece above already exists and has a strong following. Nobody owns the cano
 
 ```bash
 # install (Linux / macOS)
-curl -fsSL https://get.localmind.dev | sh
+curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.sh | sh
 
 # install (Windows PowerShell, run as Administrator)
-iwr -useb https://get.localmind.dev/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.ps1 | iex
 
 # bring it up
 localmind up

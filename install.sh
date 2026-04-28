@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 # localmind installer (Linux / macOS)
-# Usage: curl -fsSL https://get.localmind.dev | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.sh | sh
 
 set -eu
 
-REPO="${LOCALMIND_REPO:-localmind/localmind}"
+REPO="${LOCALMIND_REPO:-bsaisuryacharan/localmind}"
 VERSION="${LOCALMIND_VERSION:-latest}"
 INSTALL_DIR="${LOCALMIND_INSTALL_DIR:-$HOME/.localmind}"
 BIN_DIR="${LOCALMIND_BIN_DIR:-$HOME/.local/bin}"

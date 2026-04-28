@@ -1,9 +1,9 @@
 # localmind installer (Windows)
-# Usage: iwr -useb https://get.localmind.dev/install.ps1 | iex
+# Usage: iwr -useb https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.ps1 | iex
 
 $ErrorActionPreference = 'Stop'
 
-$Repo       = if ($env:LOCALMIND_REPO)        { $env:LOCALMIND_REPO }        else { 'localmind/localmind' }
+$Repo       = if ($env:LOCALMIND_REPO)        { $env:LOCALMIND_REPO }        else { 'bsaisuryacharan/localmind' }
 $Version    = if ($env:LOCALMIND_VERSION)     { $env:LOCALMIND_VERSION }     else { 'latest' }
 $InstallDir = if ($env:LOCALMIND_INSTALL_DIR) { $env:LOCALMIND_INSTALL_DIR } else { Join-Path $env:USERPROFILE '.localmind' }
 $BinDir     = if ($env:LOCALMIND_BIN_DIR)     { $env:LOCALMIND_BIN_DIR }     else { Join-Path $env:USERPROFILE '.localmind\bin' }
