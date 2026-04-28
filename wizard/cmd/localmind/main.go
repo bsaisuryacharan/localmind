@@ -11,6 +11,7 @@
 //   profile    benchmark the active model and recommend a profile
 //   tunnel     wrap `tailscale funnel` for mobile access
 //   keepalive  prevent the host from sleeping while the stack is up
+//   responder  host-side HTTP service that wakes the stack on demand
 //   version    print the localmind version
 package main
 
@@ -61,6 +62,8 @@ func main() {
 		mustRun(wizard.Tunnel(ctx, args))
 	case "keepalive":
 		mustRun(wizard.Keepalive(ctx, args))
+	case "responder":
+		mustRun(wizard.Responder(ctx, args))
 	case "-v", "--version", "version":
 		fmt.Printf("localmind %s\n", version)
 	case "-h", "--help", "help":
@@ -96,6 +99,7 @@ commands:
   profile     benchmark the active model and recommend a profile
   tunnel      wrap tailscale funnel for mobile access
   keepalive   prevent the host from sleeping while the stack is up
+  responder   host-side service that wakes the stack on demand
   version     print the localmind version
 
 run 'localmind <command> -h' for command-specific flags.

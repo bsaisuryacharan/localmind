@@ -46,9 +46,10 @@ localmind backup ./localmind-backup.tar.zst
 # restore from an archive (destructive; prompts before overwriting)
 localmind restore ./localmind-backup.tar.zst
 
-# mobile access (your phone, anywhere): keep the laptop awake + expose the WebUI
-localmind keepalive on
-localmind tunnel start    # uses Tailscale Funnel; prints the public URL
+# mobile access (your phone, anywhere)
+localmind responder install   # host-side service that wakes the stack on demand
+localmind keepalive on        # don't let the laptop sleep
+localmind tunnel start 7900   # publish via Tailscale Funnel; prints the URL
 ```
 
 Open WebUI at http://localhost:3000 — or, if you ran `tunnel start`, at the
