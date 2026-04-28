@@ -11,8 +11,9 @@
 //   list_files       list files known to the index
 //   read_file        return the contents of an indexed file
 //
-// The index is maintained by internal/index, which periodically rescans
-// $DATA_DIR and embeds new/changed files via Ollama's /api/embeddings.
+// The index is maintained by internal/index, which watches $DATA_DIR with
+// fsnotify (with a periodic safety rescan) and embeds new/changed files via
+// Ollama's /api/embeddings.
 package main
 
 import (

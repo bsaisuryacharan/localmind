@@ -1,11 +1,13 @@
 // Package index manages the local file index that backs the MCP gateway.
 //
-// v0: scans DATA_DIR every rescanInterval, ingests new/changed text files
+// Watches DATA_DIR with fsnotify, ingests new/changed text files
 // (.md, .txt, .markdown, .rst), embeds chunks via Ollama, and stores
 // vectors in an in-memory store with optional JSON persistence to
-// INDEX_DIR/index.json.
+// INDEX_DIR/index.json. Falls back to a periodic rescan if fsnotify
+// initialization fails (e.g. on filesystems without inotify support).
 //
-// fsnotify will replace the periodic scan in a later iteration.
+// A "safety rescan" still runs every RescanInterval to catch events
+// that fsnotify missed (buffer overflow, races on container start).
 package index
 
 import (
@@ -19,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/localmind/localmind/mcp/internal/embed"
 	"github.com/localmind/localmind/mcp/internal/store"
@@ -128,11 +132,81 @@ func (i *Index) Close() error {
 	return i.store.Save()
 }
 
+// loop is the indexer's main loop. It tries fsnotify first (incremental,
+// near-real-time updates) and falls back to a pure periodic rescan if the
+// watcher cannot be initialized.
 func (i *Index) loop(ctx context.Context) {
 	defer i.wg.Done()
+
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("index: fsnotify init failed (%v); falling back to periodic rescan", err)
+		i.fallbackLoop(ctx)
+		return
+	}
+	defer w.Close()
+
+	if err := i.watchTree(w); err != nil {
+		log.Printf("index: watchTree: %v", err)
+	}
+
+	// Always do a full scan at startup to seed / catch up.
+	i.scan(ctx)
+
+	// Safety rescan: catches events the watcher missed (buffer overflow,
+	// boot races, removed-then-restored directories).
+	safety := time.NewTicker(i.cfg.RescanInterval)
+	defer safety.Stop()
+
+	// Per-path debounce so editors that emit several Write events for one
+	// save don't trigger N redundant ingestions.
+	var (
+		debounceMu sync.Mutex
+		debounce   = map[string]*time.Timer{}
+	)
+	scheduleIngest := func(path string) {
+		debounceMu.Lock()
+		defer debounceMu.Unlock()
+		if t, ok := debounce[path]; ok {
+			t.Stop()
+		}
+		debounce[path] = time.AfterFunc(500*time.Millisecond, func() {
+			i.handleFileChange(ctx, path)
+			debounceMu.Lock()
+			delete(debounce, path)
+			debounceMu.Unlock()
+		})
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-safety.C:
+			i.scan(ctx)
+
+		case ev, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			i.handleEvent(ctx, w, ev, scheduleIngest)
+
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("index: watcher error: %v", err)
+		}
+	}
+}
+
+// fallbackLoop is the original periodic rescan. Used when fsnotify is
+// unavailable (e.g. exotic filesystems without inotify).
+func (i *Index) fallbackLoop(ctx context.Context) {
 	t := time.NewTicker(i.cfg.RescanInterval)
 	defer t.Stop()
-	i.scan(ctx) // first scan immediately
+	i.scan(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -140,6 +214,100 @@ func (i *Index) loop(ctx context.Context) {
 		case <-t.C:
 			i.scan(ctx)
 		}
+	}
+}
+
+// watchTree adds DataDir and every existing subdirectory to the watcher.
+// fsnotify is non-recursive on every supported platform, so we walk.
+func (i *Index) watchTree(w *fsnotify.Watcher) error {
+	return filepath.WalkDir(i.cfg.DataDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		if err := w.Add(path); err != nil {
+			log.Printf("index: watch add %s: %v", path, err)
+		}
+		return nil
+	})
+}
+
+// handleEvent dispatches a single fsnotify event:
+//   - Create on a directory: add to watcher and walk it for any pre-existing files.
+//   - Remove / Rename on a known path: drop from store immediately.
+//   - Create / Write on a file: schedule a debounced ingest.
+func (i *Index) handleEvent(ctx context.Context, w *fsnotify.Watcher, ev fsnotify.Event, scheduleIngest func(string)) {
+	if ev.Op.Has(fsnotify.Create) {
+		if fi, err := os.Stat(ev.Name); err == nil && fi.IsDir() {
+			if err := w.Add(ev.Name); err != nil {
+				log.Printf("index: watch add %s: %v", ev.Name, err)
+			}
+			_ = filepath.WalkDir(ev.Name, func(p string, d fs.DirEntry, _ error) error {
+				if d != nil && !d.IsDir() {
+					scheduleIngest(p)
+				}
+				return nil
+			})
+			return
+		}
+	}
+
+	if ev.Op.Has(fsnotify.Remove) || ev.Op.Has(fsnotify.Rename) {
+		rel, err := filepath.Rel(i.cfg.DataDir, ev.Name)
+		if err != nil {
+			return
+		}
+		rel = filepath.ToSlash(rel)
+		i.mu.Lock()
+		i.store.Remove(rel)
+		delete(i.known, rel)
+		i.mu.Unlock()
+		log.Printf("index: removed %s", rel)
+		return
+	}
+
+	if ev.Op.Has(fsnotify.Create) || ev.Op.Has(fsnotify.Write) {
+		scheduleIngest(ev.Name)
+	}
+}
+
+// handleFileChange ingests a single file after its debounce window expires.
+// Mirrors the per-file logic in scan() but for one path.
+func (i *Index) handleFileChange(ctx context.Context, full string) {
+	fi, err := os.Stat(full)
+	if err != nil {
+		return // file vanished; the Remove handler already cleaned up
+	}
+	if fi.IsDir() {
+		return
+	}
+	if !indexableExtensions[strings.ToLower(filepath.Ext(full))] {
+		return
+	}
+	if fi.Size() > i.cfg.MaxFileBytes {
+		return
+	}
+	rel, err := filepath.Rel(i.cfg.DataDir, full)
+	if err != nil {
+		return
+	}
+	rel = filepath.ToSlash(rel)
+
+	i.mu.Lock()
+	prev, had := i.known[rel]
+	i.mu.Unlock()
+	if had && prev.modTime.Equal(fi.ModTime()) && prev.size == fi.Size() {
+		return // already up to date
+	}
+
+	if err := i.ingest(ctx, rel, full); err != nil {
+		log.Printf("index: ingest %s: %v", rel, err)
+		return
+	}
+	i.mu.Lock()
+	i.known[rel] = fileMeta{modTime: fi.ModTime(), size: fi.Size()}
+	i.mu.Unlock()
+	if err := i.store.Save(); err != nil {
+		log.Printf("index: save: %v", err)
 	}
 }
 
