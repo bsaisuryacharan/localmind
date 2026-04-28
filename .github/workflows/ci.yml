@@ -19,11 +19,14 @@ jobs:
       - name: vet wizard
         working-directory: wizard
         run: go vet ./...
-      - name: download mcp deps
+      - name: tidy mcp deps
         working-directory: mcp
         # Populates any missing go.sum entries against the public sumdb so
         # we don't have to commit them by hand from a Go-less workstation.
-        run: go mod download
+        # `tidy` is more aggressive than `download`: it writes go.sum to match
+        # the actual import graph, picking up new requires that haven't been
+        # checksummed yet.
+        run: go mod tidy
       - name: build mcp
         working-directory: mcp
         run: go build ./...

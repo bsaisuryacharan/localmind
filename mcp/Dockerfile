@@ -1,8 +1,10 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
+# `tidy` populates go.sum entries the (Go-less) maintainer machine couldn't
+# pre-compute. Layer caching for deps is sacrificed; cold builds are still
+# under a minute.
+RUN go mod tidy
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/localmind-mcp ./cmd/localmind-mcp
 
 FROM alpine:3.20
