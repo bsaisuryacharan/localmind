@@ -11,8 +11,8 @@
 //   list_files       list files known to the index
 //   read_file        return the contents of an indexed file
 //
-// The index is built by internal/index by tailing fsnotify events on
-// $DATA_DIR and embedding new/changed files via Ollama's /api/embeddings.
+// The index is maintained by internal/index, which periodically rescans
+// $DATA_DIR and embeds new/changed files via Ollama's /api/embeddings.
 package main
 
 import (
@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -103,21 +104,38 @@ func getenv(k, def string) string {
 	return def
 }
 
-// newMCPHandler returns a stub HTTP handler that speaks just enough of MCP
-// to respond to `initialize` and `tools/list` requests. The full protocol
-// implementation will replace this once the Go MCP SDK is wired up.
-func newMCPHandler(idx *index.Index) http.Handler {
-	type rpcReq struct {
-		ID     any             `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
-	}
-	type rpcResp struct {
-		ID     any `json:"id"`
-		Result any `json:"result,omitempty"`
-		Error  any `json:"error,omitempty"`
-	}
+// MCP JSON-RPC error codes. Values track the MCP spec.
+const (
+	rpcInvalidRequest = -32600
+	rpcMethodNotFound = -32601
+	rpcInvalidParams  = -32602
+	rpcInternalError  = -32603
+)
 
+type rpcReq struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      any             `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+}
+
+type rpcErr struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type rpcResp struct {
+	JSONRPC string  `json:"jsonrpc"`
+	ID      any     `json:"id"`
+	Result  any     `json:"result,omitempty"`
+	Error   *rpcErr `json:"error,omitempty"`
+}
+
+// newMCPHandler dispatches MCP JSON-RPC requests against the index.
+//
+// Speaks the methods Claude Code currently uses: initialize, tools/list,
+// tools/call. Unknown methods get a method-not-found error.
+func newMCPHandler(idx *index.Index) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -125,28 +143,111 @@ func newMCPHandler(idx *index.Index) http.Handler {
 		}
 		var req rpcReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("bad json: %v", err), http.StatusBadRequest)
+			writeRPCError(w, nil, rpcInvalidRequest, fmt.Sprintf("bad json: %v", err))
 			return
 		}
 
-		var result any
 		switch req.Method {
 		case "initialize":
-			result = map[string]any{
+			writeRPCResult(w, req.ID, map[string]any{
 				"protocolVersion": "2025-03-26",
 				"serverInfo":      map[string]any{"name": "localmind-mcp", "version": "0.0.1"},
 				"capabilities":    map[string]any{"tools": map[string]any{}},
-			}
+			})
 		case "tools/list":
-			result = map[string]any{"tools": idx.ToolDescriptors()}
+			writeRPCResult(w, req.ID, map[string]any{"tools": idx.ToolDescriptors()})
 		case "tools/call":
-			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "TODO"}}}
+			handleToolCall(r.Context(), w, req, idx)
+		case "notifications/initialized", "notifications/cancelled":
+			// MCP notifications: no response expected.
+			w.WriteHeader(http.StatusNoContent)
 		default:
-			http.Error(w, "unknown method", http.StatusBadRequest)
+			writeRPCError(w, req.ID, rpcMethodNotFound, "unknown method: "+req.Method)
+		}
+	})
+}
+
+func handleToolCall(ctx context.Context, w http.ResponseWriter, req rpcReq, idx *index.Index) {
+	var p struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		writeRPCError(w, req.ID, rpcInvalidParams, err.Error())
+		return
+	}
+
+	switch p.Name {
+	case "search_files":
+		var args struct {
+			Query string `json:"query"`
+			K     int    `json:"k"`
+		}
+		_ = json.Unmarshal(p.Arguments, &args)
+		if args.Query == "" {
+			writeRPCError(w, req.ID, rpcInvalidParams, "query is required")
 			return
 		}
+		results, err := idx.Search(ctx, args.Query, args.K)
+		if err != nil {
+			writeRPCError(w, req.ID, rpcInternalError, err.Error())
+			return
+		}
+		var sb strings.Builder
+		if len(results) == 0 {
+			sb.WriteString("(no results)")
+		}
+		for i, r := range results {
+			fmt.Fprintf(&sb, "## Result %d  %s  (score=%.3f, bytes %d-%d)\n%s\n\n",
+				i+1, r.Doc.Path, r.Score, r.Doc.Start, r.Doc.End, r.Doc.Chunk)
+		}
+		writeRPCResult(w, req.ID, mcpTextContent(sb.String()))
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rpcResp{ID: req.ID, Result: result})
+	case "list_files":
+		paths := idx.List()
+		text := strings.Join(paths, "\n")
+		if text == "" {
+			text = "(index empty)"
+		}
+		writeRPCResult(w, req.ID, mcpTextContent(text))
+
+	case "read_file":
+		var args struct {
+			Path string `json:"path"`
+		}
+		_ = json.Unmarshal(p.Arguments, &args)
+		if args.Path == "" {
+			writeRPCError(w, req.ID, rpcInvalidParams, "path is required")
+			return
+		}
+		body, err := idx.Read(args.Path)
+		if err != nil {
+			writeRPCError(w, req.ID, rpcInternalError, err.Error())
+			return
+		}
+		writeRPCResult(w, req.ID, mcpTextContent(body))
+
+	default:
+		writeRPCError(w, req.ID, rpcMethodNotFound, "unknown tool: "+p.Name)
+	}
+}
+
+// mcpTextContent wraps a string in the MCP ToolResult schema.
+func mcpTextContent(s string) map[string]any {
+	return map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": s}},
+	}
+}
+
+func writeRPCResult(w http.ResponseWriter, id any, result any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rpcResp{JSONRPC: "2.0", ID: id, Result: result})
+}
+
+func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rpcResp{
+		JSONRPC: "2.0", ID: id,
+		Error: &rpcErr{Code: code, Message: msg},
 	})
 }

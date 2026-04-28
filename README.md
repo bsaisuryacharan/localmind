@@ -69,7 +69,7 @@ The MCP gateway exposes your local RAG index + a tool registry:
 claude mcp add localmind http://localhost:7800/mcp
 ```
 
-Then ask Claude things like "search my notes for last week's meeting decisions" — it will tool-call into the gateway, which queries the local index.
+Then ask Claude things like "search my notes for last week's meeting decisions" — it will tool-call into the gateway, which queries the local index. See [docs/mcp.md](docs/mcp.md) for tool schemas and indexing rules.
 
 ## Project structure
 

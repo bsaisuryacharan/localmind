@@ -2,6 +2,7 @@
 .env.local
 data/*
 !data/.gitkeep
+!data/README.md
 backups/
 *.log
 *.tar.zst
