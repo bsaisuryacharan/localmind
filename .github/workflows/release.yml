@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to publish (e.g. v0.0.1); leave blank to skip release upload"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: resolve version
+        id: vars
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cross-compile and archive
+        working-directory: wizard
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
+          for target in $targets; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            outdir="../build/${os}-${arch}"
+            mkdir -p "$outdir"
+            binname="localmind"
+            if [ "$os" = "windows" ]; then
+              binname="localmind.exe"
+            fi
+            echo "==> building $os/$arch ($binname)"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build \
+                -trimpath \
+                -ldflags="-s -w -X main.version=${VERSION}" \
+                -o "$outdir/$binname" \
+                ./cmd/localmind
+            if [ "$os" = "windows" ]; then
+              ( cd "$outdir" && zip -q "../../dist/localmind-windows-${arch}.zip" "$binname" )
+            else
+              tar -czf "../dist/localmind-${os}-${arch}.tar.gz" -C "$outdir" "$binname"
+            fi
+          done
+          ls -lh ../dist
+
+      - name: generate checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum localmind-*.tar.gz localmind-*.zip > checksums.txt
+          cat checksums.txt
+
+      - name: upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: localmind-release-${{ steps.vars.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: create github release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/localmind-*.tar.gz \
+            dist/localmind-*.zip \
+            dist/checksums.txt

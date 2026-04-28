@@ -19,6 +19,10 @@ import (
 	"github.com/localmind/localmind/wizard/internal/wizard"
 )
 
+// version is set at build time via -ldflags "-X main.version=<tag>".
+// Defaults to "dev" for unreleased local builds.
+var version = "dev"
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -44,6 +48,8 @@ func main() {
 		mustRun(wizard.Backup(ctx, args))
 	case "doctor":
 		mustRun(wizard.Doctor(ctx, args))
+	case "-v", "--version", "version":
+		fmt.Printf("localmind %s\n", version)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -73,6 +79,7 @@ commands:
   status    show container health
   backup    snapshot all data to a tar.zst archive
   doctor    diagnose common problems
+  version   print the localmind version
 
 run 'localmind <command> -h' for command-specific flags.
 `)
