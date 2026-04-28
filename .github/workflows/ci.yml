@@ -19,6 +19,11 @@ jobs:
       - name: vet wizard
         working-directory: wizard
         run: go vet ./...
+      - name: download mcp deps
+        working-directory: mcp
+        # Populates any missing go.sum entries against the public sumdb so
+        # we don't have to commit them by hand from a Go-less workstation.
+        run: go mod download
       - name: build mcp
         working-directory: mcp
         run: go build ./...

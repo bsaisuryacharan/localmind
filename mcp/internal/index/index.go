@@ -51,6 +51,7 @@ const (
 
 var indexableExtensions = map[string]bool{
 	".md": true, ".markdown": true, ".txt": true, ".rst": true,
+	".pdf": true, ".docx": true,
 }
 
 // fileMeta tracks what we last ingested for change detection.
@@ -373,16 +374,19 @@ func (i *Index) scan(ctx context.Context) {
 	}
 }
 
-// ingest reads, chunks, embeds, and replaces a single file's docs.
+// ingest extracts plain text, chunks it, embeds each chunk, and replaces a
+// single file's docs. extractText handles dispatch by extension; markdown /
+// txt / rst go through verbatim, PDFs are page-extracted, DOCX runs through
+// a stdlib XML walker.
 func (i *Index) ingest(ctx context.Context, rel, full string) error {
-	body, err := os.ReadFile(full)
+	text, err := extractText(full)
 	if err != nil {
 		return err
 	}
-	if isBinary(body) {
+	if text == "" {
 		return nil
 	}
-	chunks := chunk(string(body), i.cfg.ChunkBytes, i.cfg.ChunkOverlap)
+	chunks := chunk(text, i.cfg.ChunkBytes, i.cfg.ChunkOverlap)
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -414,17 +418,15 @@ func (i *Index) Search(ctx context.Context, query string, k int) ([]store.Result
 // List returns indexed paths.
 func (i *Index) List() []string { return i.store.Paths() }
 
-// Read returns the full contents of an indexed file (re-read from disk).
+// Read returns the extracted plain-text contents of an indexed file. For
+// .pdf and .docx this is the same text the indexer embedded; LLM consumers
+// don't have to re-parse the binary format.
 func (i *Index) Read(rel string) (string, error) {
 	if !i.store.Has(rel) {
 		return "", fmt.Errorf("not indexed: %s", rel)
 	}
 	full := filepath.Join(i.cfg.DataDir, filepath.FromSlash(rel))
-	body, err := os.ReadFile(full)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
+	return extractText(full)
 }
 
 // ToolDescriptors returns MCP tool descriptors that this index exposes.
