@@ -25,9 +25,7 @@ var dockerVolumes = []string{
 // read-only at /backup/<volume> and the destination directory mounted writable
 // at /out, then `tar | zstd` everything in one shot. This avoids any host-side
 // dependency on tar/zstd and works identically on Linux, macOS, and Windows
-// hosts that have Docker.
-//
-// TODO: implement `localmind restore <archive>` as a sibling command.
+// hosts that have Docker. See Restore for the inverse.
 func Backup(ctx context.Context, args []string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker not found on PATH: %w", err)

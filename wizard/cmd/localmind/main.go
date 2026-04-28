@@ -1,12 +1,17 @@
 // localmind: CLI entrypoint.
 //
 // Subcommands:
-//   init    detect hardware, write .env + active profile in models.yml
-//   up      docker compose up -d (with the right overlays for the host)
-//   down    docker compose down
-//   status  print container health
-//   backup  tar+zstd of webui/ollama/mcp_index volumes
-//   doctor  diagnose common problems
+//   init       detect hardware, write .env + active profile in models.yml
+//   up         docker compose up -d (with the right overlays for the host)
+//   down       docker compose down
+//   status     print container health
+//   backup     tar+zstd of all docker volumes
+//   restore    restore from a backup archive (destructive)
+//   doctor     diagnose common problems
+//   profile    benchmark the active model and recommend a profile
+//   tunnel     wrap `tailscale funnel` for mobile access
+//   keepalive  prevent the host from sleeping while the stack is up
+//   version    print the localmind version
 package main
 
 import (
@@ -46,10 +51,16 @@ func main() {
 		mustRun(wizard.Status(ctx, args))
 	case "backup":
 		mustRun(wizard.Backup(ctx, args))
+	case "restore":
+		mustRun(wizard.Restore(ctx, args))
 	case "doctor":
 		mustRun(wizard.Doctor(ctx, args))
 	case "profile":
 		mustRun(wizard.Profile(ctx, args))
+	case "tunnel":
+		mustRun(wizard.Tunnel(ctx, args))
+	case "keepalive":
+		mustRun(wizard.Keepalive(ctx, args))
 	case "-v", "--version", "version":
 		fmt.Printf("localmind %s\n", version)
 	case "-h", "--help", "help":
@@ -75,14 +86,17 @@ usage:
   localmind <command> [args]
 
 commands:
-  init      detect hardware and write configuration
-  up        start the stack
-  down      stop the stack
-  status    show container health
-  backup    snapshot all data to a tar.zst archive
-  doctor    diagnose common problems
-  profile   benchmark the active model and recommend a profile
-  version   print the localmind version
+  init        detect hardware and write configuration
+  up          start the stack
+  down        stop the stack
+  status      show container health
+  backup      snapshot all data to a tar.zst archive
+  restore     restore from a backup archive (destructive)
+  doctor      diagnose common problems
+  profile     benchmark the active model and recommend a profile
+  tunnel      wrap tailscale funnel for mobile access
+  keepalive   prevent the host from sleeping while the stack is up
+  version     print the localmind version
 
 run 'localmind <command> -h' for command-specific flags.
 `)

@@ -42,9 +42,18 @@ localmind down
 
 # back everything up (chats + RAG index + models manifest)
 localmind backup ./localmind-backup.tar.zst
+
+# restore from an archive (destructive; prompts before overwriting)
+localmind restore ./localmind-backup.tar.zst
+
+# mobile access (your phone, anywhere): keep the laptop awake + expose the WebUI
+localmind keepalive on
+localmind tunnel start    # uses Tailscale Funnel; prints the public URL
 ```
 
-Open WebUI at http://localhost:3000.
+Open WebUI at http://localhost:3000 — or, if you ran `tunnel start`, at the
+public URL it printed. See [docs/mobile.md](docs/mobile.md) for the full
+phone-from-anywhere story including current limits around laptop sleep.
 
 ## Hardware-aware defaults
 
