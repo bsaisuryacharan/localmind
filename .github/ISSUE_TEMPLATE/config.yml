@@ -1,0 +1,15 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/bsaisuryacharan/localmind/discussions
+    about: |
+      Have a question, an idea you want to kick around, or a "is anyone
+      else seeing this?" — please use Discussions instead of opening
+      an issue. Issues are for actionable bugs and concrete feature
+      requests.
+  - name: Security advisories (private)
+    url: https://github.com/bsaisuryacharan/localmind/security/advisories/new
+    about: |
+      Found a security vulnerability? Report it privately via a GitHub
+      Security Advisory. Do NOT open a public issue. See SECURITY.md
+      for the full policy.
