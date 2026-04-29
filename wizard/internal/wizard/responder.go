@@ -51,6 +51,10 @@ func responderUsage() error {
 // triggers a `localmind up --no-profile` via the wizard.Up code path.
 func responderRun(ctx context.Context) error {
 	srv := responder.New(responder.Config{
+		// Optional bearer token. If unset, the responder runs unauthenticated
+		// (historical behavior). If set, /status, /wake, and the HTML page
+		// all require the token; /healthz stays open for monitoring.
+		Token: os.Getenv("LOCALMIND_RESPONDER_TOKEN"),
 		WakeRunner: func(c context.Context) error {
 			// The wake call is best-effort; profile would block much longer
 			// than the wake budget so we always skip it here.

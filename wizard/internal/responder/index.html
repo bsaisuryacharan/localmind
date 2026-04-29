@@ -93,6 +93,17 @@
       var POLL_MS = 2000;
       var POLL_BUDGET_MS = 60000;
 
+      // If the page was loaded with ?token=..., propagate it on every
+      // /status and /wake fetch so the responder lets us through. Note we
+      // deliberately do NOT pass it to the Open WebUI redirect — that
+      // service has its own auth and the token is only meaningful here.
+      var token = new URLSearchParams(location.search).get('token');
+      function withToken(url) {
+        if (!token) return url;
+        var sep = url.indexOf('?') >= 0 ? '&' : '?';
+        return url + sep + 'token=' + encodeURIComponent(token);
+      }
+
       var spinnerEl = document.getElementById('spinner');
       var msgEl = document.getElementById('msg');
       var subEl = document.getElementById('sub');
@@ -132,7 +143,7 @@
         window.location.replace(url);
       }
       function getStatus() {
-        return fetch('/status', { cache: 'no-store' }).then(function (r) {
+        return fetch(withToken('/status'), { cache: 'no-store' }).then(function (r) {
           if (!r.ok) throw new Error('status ' + r.status);
           return r.json();
         });
@@ -160,7 +171,7 @@
         showRetry(false);
         setMsg('Waking your AI…');
         setSub('~30 s on first boot, ~5 s after.');
-        fetch('/wake', { method: 'POST', cache: 'no-store' })
+        fetch(withToken('/wake'), { method: 'POST', cache: 'no-store' })
           .then(function (r) {
             if (!r.ok) throw new Error('wake ' + r.status);
             return r.json();
