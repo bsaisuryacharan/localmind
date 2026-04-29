@@ -34,10 +34,14 @@ var indexHTML []byte
 
 // Config tunes the responder.
 type Config struct {
-	Addr           string        // listen address; default ":7900"
-	WebUIURL       string        // upstream WebUI to probe; default "http://localhost:3000"
-	WakeTimeout    time.Duration // max time to spend waking the stack; default 60s
-	WakeRunner     WakeRunner    // injected so tests don't fork docker
+	Addr        string        // listen address; default ":7900"
+	WebUIURL    string        // upstream WebUI to probe; default "http://localhost:3000"
+	WakeTimeout time.Duration // max time to spend waking the stack; default 60s
+	WakeRunner  WakeRunner    // injected so tests don't fork docker
+	// Token, if non-empty, requires every protected endpoint to present a
+	// matching bearer token (Authorization header or ?token=). /healthz is
+	// always open. Empty disables auth — the historical default.
+	Token string
 }
 
 // WakeRunner brings the docker stack up. The default implementation shells
@@ -73,10 +77,13 @@ func New(cfg Config) *Server {
 		wake:  &singleFlight{},
 		probe: &http.Client{Timeout: 3 * time.Second},
 	}
+	// /healthz stays open so external monitoring can liveness-check the
+	// responder without holding the token. Everything else goes through
+	// requireToken, which is a no-op when cfg.Token == "".
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
-	s.mux.HandleFunc("/status", s.handleStatus)
-	s.mux.HandleFunc("/wake", s.handleWake)
-	s.mux.HandleFunc("/", s.handleIndex)
+	s.mux.Handle("/status", requireToken(s.cfg.Token, http.HandlerFunc(s.handleStatus)))
+	s.mux.Handle("/wake", requireToken(s.cfg.Token, http.HandlerFunc(s.handleWake)))
+	s.mux.Handle("/", requireToken(s.cfg.Token, http.HandlerFunc(s.handleIndex)))
 	return s
 }
 
@@ -98,7 +105,11 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("responder: listening on %s, upstream=%s", s.cfg.Addr, s.cfg.WebUIURL)
+	authState := "off"
+	if s.cfg.Token != "" {
+		authState = "on"
+	}
+	log.Printf("responder: listening on %s, upstream=%s, auth=%s", s.cfg.Addr, s.cfg.WebUIURL, authState)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

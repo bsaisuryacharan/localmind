@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,8 +36,12 @@ import (
 
 func main() {
 	cfg := loadConfig()
-	log.Printf("localmind-mcp starting: addr=%s data=%s index=%s ollama=%s",
-		cfg.Addr, cfg.DataDir, cfg.IndexDir, cfg.OllamaBaseURL)
+	authState := "off"
+	if cfg.Token != "" {
+		authState = "on"
+	}
+	log.Printf("localmind-mcp starting: addr=%s data=%s index=%s ollama=%s auth=%s",
+		cfg.Addr, cfg.DataDir, cfg.IndexDir, cfg.OllamaBaseURL, authState)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -53,10 +58,12 @@ func main() {
 	defer idx.Close()
 
 	mux := http.NewServeMux()
+	// /healthz stays open so external monitoring (and `localmind status`)
+	// can liveness-check the gateway without holding the token.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/mcp", newMCPHandler(idx))
+	mux.Handle("/mcp", requireToken(cfg.Token, newMCPHandler(idx)))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -86,6 +93,9 @@ type config struct {
 	IndexDir       string
 	EmbeddingModel string
 	OllamaBaseURL  string
+	// Token, if non-empty, gates the /mcp endpoint behind a bearer token.
+	// /healthz stays open regardless. Sourced from LOCALMIND_MCP_TOKEN.
+	Token string
 }
 
 func loadConfig() config {
@@ -95,7 +105,33 @@ func loadConfig() config {
 		IndexDir:       getenv("INDEX_DIR", "/var/lib/localmind"),
 		EmbeddingModel: getenv("EMBEDDING_MODEL", "nomic-embed-text"),
 		OllamaBaseURL:  getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
+		Token:          os.Getenv("LOCALMIND_MCP_TOKEN"),
 	}
+}
+
+// requireToken wraps next so that, when token is non-empty, every request
+// must present a matching bearer token. Accepts either:
+//
+//	Authorization: Bearer <token>
+//	?token=<token>
+//
+// Comparison is constant-time to avoid timing oracles.
+func requireToken(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if got == "" {
+			got = r.URL.Query().Get("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func getenv(k, def string) string {
