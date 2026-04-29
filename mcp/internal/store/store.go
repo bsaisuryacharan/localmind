@@ -49,11 +49,17 @@ type Store interface {
 	Close() error
 }
 
-// Open loads (or creates) a Store. The current implementation always
-// returns a MemoryStore; persistPath, when non-empty, points at a JSON
-// file the MemoryStore reads on open and writes on Save. Future
-// implementations may interpret persistPath differently (e.g. as a
-// sqlite database file).
+// Open loads (or creates) a Store. Currently always returns a MemoryStore.
+// A future change will dispatch by persistPath suffix:
+//
+//	*.sqlite, *.db   → SQLiteStore (build tag: sqlitevec)
+//	*.json or empty  → MemoryStore (today's default)
+//
+// See docs/sqlite-vec-design.md for the migration plan.
+//
+// The current implementation always returns a MemoryStore; persistPath,
+// when non-empty, points at a JSON file the MemoryStore reads on open
+// and writes on Save.
 func Open(persistPath string) (Store, error) {
 	return openMemory(persistPath)
 }
