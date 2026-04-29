@@ -15,9 +15,12 @@ import (
 	"github.com/ledongthuc/pdf"
 )
 
-// ocrBaseURL is the OCR sidecar's HTTP endpoint. Set via the OCR_BASE_URL
-// env var; empty disables OCR fallback for local builds without docker.
-var ocrBaseURL = os.Getenv("OCR_BASE_URL")
+// ocrBaseURL returns the OCR sidecar's HTTP endpoint, or "" to disable
+// OCR fallback for local builds without docker. The default reads
+// OCR_BASE_URL on each call so tests can swap this var to inject a mock
+// sidecar without globals races; one os.Getenv per indexed PDF is
+// negligible. Tests replace this and restore via t.Cleanup.
+var ocrBaseURL = func() string { return os.Getenv("OCR_BASE_URL") }
 
 // ocrClient is shared so connection reuse helps with multi-PDF batches.
 var ocrClient = &http.Client{Timeout: 5 * time.Minute}
@@ -82,7 +85,7 @@ func extractPDF(path string) (string, error) {
 		sb.WriteString("\n\n")
 	}
 	out := sb.String()
-	if strings.TrimSpace(out) != "" || ocrBaseURL == "" {
+	if strings.TrimSpace(out) != "" || ocrBaseURL() == "" {
 		return out, nil
 	}
 	// Text layer was empty and OCR is configured; fall back. ocrPDF
@@ -99,7 +102,7 @@ func ocrPDF(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ocr: read pdf: %w", err)
 	}
-	url := strings.TrimRight(ocrBaseURL, "/") + "/v1/ocr"
+	url := strings.TrimRight(ocrBaseURL(), "/") + "/v1/ocr"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("ocr: build request: %w", err)

@@ -2,6 +2,10 @@ package index
 
 import (
 	"archive/zip"
+	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,10 +148,52 @@ func TestExtractText_PDF(t *testing.T) {
 	t.Skip("PDF extraction not unit-tested; would require hand-crafted PDF bytes")
 }
 
-// TestExtractText_OCRFallback is intentionally skipped. The OCR sidecar is
-// reached over HTTP using a package-level ocrBaseURL var read at init time
-// from os.Getenv; mocking that would require either changing the source
-// or running the OCR sidecar. Out of scope for v1.
-func TestExtractText_OCRFallback(t *testing.T) {
-	t.Skip("OCR fallback path not unit-tested; ocrBaseURL is read at init from env")
+// TestOCRPDF_PostsAndReturnsBody verifies the OCR sidecar plumbing: ocrPDF
+// posts the file bytes to <base>/v1/ocr with Content-Type: application/pdf
+// and returns the response body verbatim as the extracted text. We test
+// ocrPDF directly rather than through extractPDF so we don't need to
+// hand-craft a syntactically valid PDF with no text layer; the
+// extractPDF -> ocrPDF wiring is covered by inspection of the call site.
+func TestOCRPDF_PostsAndReturnsBody(t *testing.T) {
+	pdfBytes := []byte("%PDF-1.4 fake but doesn't matter — ocrPDF doesn't validate")
+
+	var receivedContentType string
+	var receivedBody []byte
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/ocr" {
+			http.NotFound(w, r)
+			return
+		}
+		receivedContentType = r.Header.Get("Content-Type")
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = body
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("OCR'd content from scanned PDF"))
+	}))
+	t.Cleanup(mock.Close)
+
+	// Swap the URL func for the duration of this test.
+	orig := ocrBaseURL
+	ocrBaseURL = func() string { return mock.URL }
+	t.Cleanup(func() { ocrBaseURL = orig })
+
+	dir := t.TempDir()
+	pdfPath := filepath.Join(dir, "scan.pdf")
+	if err := os.WriteFile(pdfPath, pdfBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := ocrPDF(pdfPath)
+	if err != nil {
+		t.Fatalf("ocrPDF: %v", err)
+	}
+	if text != "OCR'd content from scanned PDF" {
+		t.Errorf("ocrPDF text=%q, want %q", text, "OCR'd content from scanned PDF")
+	}
+	if receivedContentType != "application/pdf" {
+		t.Errorf("server saw Content-Type=%q, want application/pdf", receivedContentType)
+	}
+	if !bytes.Equal(receivedBody, pdfBytes) {
+		t.Errorf("server received body %q, want %q", receivedBody, pdfBytes)
+	}
 }
