@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>localmind</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      background: #0e1116;
+      color: #e6edf3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+    main {
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      margin: 0 0 24px 0;
+      color: #8b949e;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      margin: 0 auto 20px auto;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .msg {
+      font-size: 16px;
+      line-height: 1.45;
+      margin: 0 0 8px 0;
+    }
+    .sub {
+      font-size: 13px;
+      color: #8b949e;
+      margin: 0;
+    }
+    .err {
+      color: #f85149;
+    }
+    button {
+      margin-top: 20px;
+      font: inherit;
+      font-size: 15px;
+      color: #e6edf3;
+      background: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 10px 20px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:hover, button:focus { background: #2d333b; outline: none; }
+    button:active { background: #1c2128; }
+    .hidden { display: none; }
+    @media (prefers-color-scheme: light) {
+      body { background: #f6f8fa; color: #1f2328; }
+      h1 { color: #59636e; }
+      .spinner { border-color: rgba(0, 0, 0, 0.08); border-top-color: #0969da; }
+      .sub { color: #59636e; }
+      button { background: #f6f8fa; color: #1f2328; border-color: #d0d7de; }
+      button:hover, button:focus { background: #eaeef2; }
+      .err { color: #cf222e; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>localmind</h1>
+    <div id="spinner" class="spinner"></div>
+    <p id="msg" class="msg">Checking status…</p>
+    <p id="sub" class="sub"></p>
+    <button id="retry" class="hidden" type="button">Retry</button>
+  </main>
+  <script>
+    (function () {
+      var POLL_MS = 2000;
+      var POLL_BUDGET_MS = 60000;
+
+      var spinnerEl = document.getElementById('spinner');
+      var msgEl = document.getElementById('msg');
+      var subEl = document.getElementById('sub');
+      var retryEl = document.getElementById('retry');
+
+      var pollTimer = null;
+      var pollDeadline = 0;
+
+      function showSpinner(show) {
+        spinnerEl.className = show ? 'spinner' : 'spinner hidden';
+      }
+      function setMsg(text, isError) {
+        msgEl.textContent = text;
+        msgEl.className = isError ? 'msg err' : 'msg';
+      }
+      function setSub(text) {
+        subEl.textContent = text || '';
+      }
+      function showRetry(show) {
+        retryEl.className = show ? '' : 'hidden';
+      }
+      function stopPolling() {
+        if (pollTimer !== null) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+      function fail(reason) {
+        stopPolling();
+        showSpinner(false);
+        setMsg(reason || 'Could not reach localmind.', true);
+        setSub('Tap retry to try again.');
+        showRetry(true);
+      }
+      function go(url) {
+        stopPolling();
+        window.location.replace(url);
+      }
+      function getStatus() {
+        return fetch('/status', { cache: 'no-store' }).then(function (r) {
+          if (!r.ok) throw new Error('status ' + r.status);
+          return r.json();
+        });
+      }
+      function pollOnce() {
+        if (Date.now() > pollDeadline) {
+          fail('Timed out waking localmind.');
+          return;
+        }
+        getStatus().then(function (data) {
+          if (data && data.stack_running && data.webui_url) {
+            go(data.webui_url);
+          }
+        }).catch(function () {
+          // Transient error during polling; keep trying until the
+          // deadline. A full failure will land in fail() above.
+        });
+      }
+      function startPolling() {
+        pollDeadline = Date.now() + POLL_BUDGET_MS;
+        pollTimer = setInterval(pollOnce, POLL_MS);
+      }
+      function wake() {
+        showSpinner(true);
+        showRetry(false);
+        setMsg('Waking your AI…');
+        setSub('~30 s on first boot, ~5 s after.');
+        fetch('/wake', { method: 'POST', cache: 'no-store' })
+          .then(function (r) {
+            if (!r.ok) throw new Error('wake ' + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            if (data && data.webui_url && (data.already_running || data.woke)) {
+              // /wake's own probe already passed, but kick a fresh /status
+              // so we redirect using the same source of truth as the
+              // running case.
+              return getStatus().then(function (s) {
+                if (s && s.stack_running && s.webui_url) {
+                  go(s.webui_url);
+                } else {
+                  startPolling();
+                }
+              });
+            }
+            startPolling();
+          })
+          .catch(function (err) {
+            fail('Wake failed: ' + (err && err.message ? err.message : err));
+          });
+      }
+      function run() {
+        stopPolling();
+        showRetry(false);
+        showSpinner(true);
+        setMsg('Checking status…');
+        setSub('');
+        getStatus().then(function (data) {
+          if (data && data.stack_running && data.webui_url) {
+            go(data.webui_url);
+            return;
+          }
+          wake();
+        }).catch(function (err) {
+          fail('Could not reach responder: ' + (err && err.message ? err.message : err));
+        });
+      }
+      retryEl.addEventListener('click', run);
+      run();
+    })();
+  </script>
+</body>
+</html>

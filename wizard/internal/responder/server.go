@@ -17,6 +17,7 @@ package responder
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,9 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed index.html
+var indexHTML []byte
 
 // Config tunes the responder.
 type Config struct {
@@ -72,6 +76,7 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
 	s.mux.HandleFunc("/status", s.handleStatus)
 	s.mux.HandleFunc("/wake", s.handleWake)
+	s.mux.HandleFunc("/", s.handleIndex)
 	return s
 }
 
@@ -102,6 +107,22 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleIndex serves the embedded entry-point page. ServeMux's "/" pattern
+// also catches any path that didn't match a more specific handler, so we
+// 404 anything that isn't an exact GET /.
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(indexHTML)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
