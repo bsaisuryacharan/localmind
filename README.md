@@ -20,7 +20,7 @@ That installs a single static binary, runs a setup wizard that detects your hard
 | Web UI           | Chat, model admin, multi-user           | Open WebUI       |
 | Voice in (STT)   | Microphone → text                       | faster-whisper   |
 | Voice out (TTS)  | Text → audio                            | Piper            |
-| RAG              | Watches `./data/`, indexes files locally | sqlite-vec       |
+| RAG              | Watches `./data/`, indexes files locally | in-memory cosine search (sqlite-vec backend planned) |
 | MCP gateway      | Exposes RAG + tools to Claude / Cursor  | localmind-mcp    |
 
 Everything runs as containers. Nothing leaves your machine unless you opt in.
