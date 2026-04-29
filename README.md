@@ -118,6 +118,8 @@ Then ask Claude things like "search my notes for last week's meeting decisions" 
 
 Pre-alpha. Active development. Issues and PRs welcome.
 
+**Privacy**: localmind sends no telemetry by default. See [docs/telemetry.md](docs/telemetry.md) for the opt-in plan.
+
 ## License
 
 MIT.
