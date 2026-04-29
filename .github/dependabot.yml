@@ -1,0 +1,63 @@
+# Dependabot configuration for localmind.
+#
+# Watches our two Go modules (wizard/ and mcp/) and the GitHub Actions
+# workflows under .github/workflows/ for new releases and security
+# advisories. Dependabot opens PRs against this repo on the schedule below.
+#
+# Minor + patch updates are grouped per ecosystem to keep PR noise low;
+# major updates still come through as individual PRs so they get their own
+# review. Schedule is Monday 07:00 (UTC, GitHub default) so PRs land before
+# the working week starts.
+
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/wizard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      wizard-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "gomod"
+    directory: "/mcp"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      mcp-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
