@@ -157,29 +157,10 @@ func Status(ctx context.Context, _ []string) error {
 	return composeRun(ctx, []string{"ps"})
 }
 
-// Doctor diagnoses common problems.
+// Doctor diagnoses common problems. The heavy lifting lives in
+// doctor.go; this remains the entrypoint dispatched from main.
 func Doctor(ctx context.Context, _ []string) error {
-	checks := []struct {
-		name string
-		fn   func() error
-	}{
-		{"docker on PATH", func() error { _, err := exec.LookPath("docker"); return err }},
-		{"docker compose plugin", checkDockerCompose},
-		{"repo root resolvable", func() error { _, err := repoRoot(); return err }},
-	}
-	allOK := true
-	for _, c := range checks {
-		if err := c.fn(); err != nil {
-			fmt.Printf("FAIL  %s: %v\n", c.name, err)
-			allOK = false
-			continue
-		}
-		fmt.Printf("OK    %s\n", c.name)
-	}
-	if !allOK {
-		return fmt.Errorf("one or more checks failed")
-	}
-	return nil
+	return runDoctor(ctx)
 }
 
 // composeRun shells out to `docker compose` with the right -f overlays
@@ -240,10 +221,3 @@ func repoRoot() (string, error) {
 	}
 }
 
-func checkDockerCompose() error {
-	out, err := exec.Command("docker", "compose", "version").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
