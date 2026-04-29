@@ -8,6 +8,10 @@ curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/inst
 
 That installs a single static binary, runs a setup wizard that detects your hardware (CPU / NVIDIA / Apple Silicon / RAM), picks the right model sizes for you, writes the compose files, and brings up the stack.
 
+## Demo
+
+> [Demo gif coming soon — see [issue #N] for tracking.]
+
 ## What's in the box
 
 | Component        | What it does                            | Project          |
@@ -20,6 +24,16 @@ That installs a single static binary, runs a setup wizard that detects your hard
 | MCP gateway      | Exposes RAG + tools to Claude / Cursor  | localmind-mcp    |
 
 Everything runs as containers. Nothing leaves your machine unless you opt in.
+
+## Architecture
+
+```
+  phone ──▶ tailscale funnel ──▶ responder ──▶ docker stack
+                                  (host)         (ollama, webui,
+                                                  whisper, piper, mcp)
+```
+
+The responder is a tiny host-side HTTP service that always answers, even when the docker stack is cold; it wakes the stack on demand so the public URL stays stable. The wizard CLI (`localmind`) is the only host-side binary — it dispatches `docker compose`, manages the responder, and owns install/profile/backup. See [docs/architecture.md](docs/architecture.md) for the full picture.
 
 ## Why
 

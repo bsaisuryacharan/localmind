@@ -93,3 +93,85 @@ jobs:
             dist/localmind-*.tar.gz \
             dist/localmind-*.zip \
             dist/checksums.txt
+
+  # authenticode-sign the windows binaries via azure key vault.
+  # gated: this job is skipped until AZURE_KEY_VAULT_URL is configured.
+  # see docs/code-signing.md for the secret setup.
+  sign:
+    needs: release
+    if: ${{ secrets.AZURE_KEY_VAULT_URL != '' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: resolve version
+        id: vars
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: localmind-release-${{ steps.vars.outputs.version }}
+          path: dist
+
+      - name: install azuresigntool
+        shell: bash
+        run: dotnet tool install --global AzureSignTool
+
+      - name: unpack, sign, repack windows binaries
+        shell: bash
+        env:
+          AZURE_KEY_VAULT_URL: ${{ secrets.AZURE_KEY_VAULT_URL }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CERT_NAME: ${{ secrets.AZURE_CERT_NAME }}
+        run: |
+          set -euo pipefail
+          mkdir -p signed
+          for arch in amd64 arm64; do
+            zip="dist/localmind-windows-${arch}.zip"
+            workdir="signed/${arch}"
+            mkdir -p "$workdir"
+            unzip -q "$zip" -d "$workdir"
+            AzureSignTool sign \
+              --keyvault-url "$AZURE_KEY_VAULT_URL" \
+              --keyvault-tenant-id "$AZURE_TENANT_ID" \
+              --keyvault-client-id "$AZURE_CLIENT_ID" \
+              --keyvault-client-secret "$AZURE_CLIENT_SECRET" \
+              --keyvault-certificate "$AZURE_CERT_NAME" \
+              --description "localmind" \
+              --description-url "https://github.com/bsaisuryacharan/localmind" \
+              --timestamp-rfc3161 "http://timestamp.digicert.com" \
+              "$workdir/localmind.exe"
+            ( cd "$workdir" && 7z a -tzip "../../dist/localmind-windows-${arch}.zip" "localmind.exe" )
+          done
+
+      - name: refresh checksums for signed archives
+        shell: bash
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum localmind-*.tar.gz localmind-*.zip > checksums.txt
+          cat checksums.txt
+
+      - name: re-upload signed artifacts to release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/localmind-windows-amd64.zip \
+            dist/localmind-windows-arm64.zip \
+            dist/checksums.txt \
+            --clobber
