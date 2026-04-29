@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a new capability or enhancement for localmind
+title: "[feat] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for thinking about how localmind could be better.
+
+        Heads up: this is a small project maintained by a tiny team.
+        Big features ("rewrite the wizard in Rust", "add a managed cloud
+        offering") may take a while — or may not happen at all if they
+        push the install footprint past what a laptop can comfortably run.
+        The smaller and more concrete the proposal, the more likely it ships.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the user-facing problem, not the solution. What can't you do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: mvp
+    attributes:
+      label: What's the smallest version that would help?
+      description: |
+        Force yourself to think about MVP. If we shipped the most stripped-down
+        version of this feature, what would it look like? What would it *not* do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Have you considered alternatives?
+      description: Workarounds you've tried, related tools, or different ways to solve the underlying problem.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: pr-willing
+    attributes:
+      label: Are you willing to send a PR?
+      description: No pressure either way — this just helps us know whether to scope for ourselves or wait for you.
+      options:
+        - "Yes"
+        - "Maybe"
+        - "No"
+    validations:
+      required: true

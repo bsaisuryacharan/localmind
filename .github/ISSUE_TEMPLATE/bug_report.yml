@@ -1,0 +1,93 @@
+name: Bug report
+description: Report a reproducible bug in localmind
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+
+        **Before you submit:**
+        - If you've found a security vulnerability, **do not file it here.**
+          See [SECURITY.md](https://github.com/bsaisuryacharan/localmind/blob/main/SECURITY.md)
+          for the private reporting process.
+        - Skim [CONTRIBUTING.md](https://github.com/bsaisuryacharan/localmind/blob/main/CONTRIBUTING.md)
+          for context on how the project is built and what we ask of reporters.
+        - Search existing issues first — your problem may already be tracked.
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: localmind version
+      description: Which release are you running? (`localmind --version`)
+      options:
+        - v0.0.1
+        - v0.0.2
+        - v0.0.3
+        - v0.0.4
+        - v0.0.5
+        - main (built from source)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host-os
+    attributes:
+      label: Host OS
+      description: Where is localmind running?
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe what you thought would happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened?
+      description: Describe what actually happened. Include exact error messages if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps a maintainer can run to see the same bug.
+      placeholder: |
+        1. `localmind init` on a fresh checkout
+        2. `localmind up`
+        3. Open http://localhost:3000 and send a chat message
+        4. Observe that the response stalls after ~2 tokens
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: localmind doctor output
+      description: Output of `localmind doctor`. Paste verbatim inside a code block — do not redact host paths unless they're sensitive.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / docker compose ps
+      description: Relevant log excerpts and the output of `docker compose ps` from your localmind directory. Trim to the interesting bits.
+      render: shell
+    validations:
+      required: false
