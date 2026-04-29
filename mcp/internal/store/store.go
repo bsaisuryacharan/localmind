@@ -1,8 +1,11 @@
-// Package store is an in-memory vector store with optional JSON persistence.
+// Package store defines the vector-store interface used by the indexer
+// and ships an in-memory implementation.
 //
-// Scale notes: holds everything in RAM. At 1024-dim float32 embeddings and
-// ~1500-char chunks, ~50K chunks fits in ~200 MB. Beyond that, swap in
-// sqlite-vec or LanceDB. v0 keeps it simple.
+// Scale notes: the in-memory MemoryStore holds everything in RAM. At
+// 1024-dim float32 embeddings and ~1500-char chunks, ~50K chunks fits
+// in ~200 MB. Beyond that, a sqlite-vec or LanceDB-backed Store can be
+// dropped in without changing the indexer — only Open's return value
+// changes.
 package store
 
 import (
@@ -17,11 +20,11 @@ import (
 
 // Doc is a single indexed chunk.
 type Doc struct {
-	Path  string    `json:"path"`        // path relative to data dir
-	Start int       `json:"start"`       // byte offset within source file
-	End   int       `json:"end"`         // exclusive end offset
-	Chunk string    `json:"chunk"`       // raw text
-	Vec   []float32 `json:"vec"`         // unit-normalized embedding
+	Path  string    `json:"path"`  // path relative to data dir
+	Start int       `json:"start"` // byte offset within source file
+	End   int       `json:"end"`   // exclusive end offset
+	Chunk string    `json:"chunk"` // raw text
+	Vec   []float32 `json:"vec"`   // unit-normalized embedding
 }
 
 // Result is a search hit with its similarity score.
@@ -30,15 +33,46 @@ type Result struct {
 	Score float32
 }
 
-type Store struct {
-	mu       sync.RWMutex
-	docs     []Doc
-	persist  string // file path; "" disables persistence
+// Store is the abstraction the indexer talks to. Replace, Remove, and
+// Has key off the file path (relative to the data dir). Search takes a
+// raw query vector; implementations are free to normalize internally.
+// Save flushes any pending state to durable storage if the backend has
+// one. Close releases resources (a no-op for MemoryStore; a real
+// shutdown for a future sqlite-backed impl).
+type Store interface {
+	Replace(path string, docs []Doc)
+	Remove(path string)
+	Paths() []string
+	Has(path string) bool
+	Search(queryVec []float32, k int) []Result
+	Save() error
+	Close() error
 }
 
-// Open loads any existing store from persistPath. Pass "" for ephemeral.
-func Open(persistPath string) (*Store, error) {
-	s := &Store{persist: persistPath}
+// Open loads (or creates) a Store. The current implementation always
+// returns a MemoryStore; persistPath, when non-empty, points at a JSON
+// file the MemoryStore reads on open and writes on Save. Future
+// implementations may interpret persistPath differently (e.g. as a
+// sqlite database file).
+func Open(persistPath string) (Store, error) {
+	return openMemory(persistPath)
+}
+
+// MemoryStore is the default Store: a slice of Docs with cosine search.
+type MemoryStore struct {
+	mu      sync.RWMutex
+	docs    []Doc
+	persist string // file path; "" disables persistence
+}
+
+// NewMemoryStore is exported for callers that explicitly want the
+// in-memory backend (tests, embedded use). Most code should call Open.
+func NewMemoryStore(persistPath string) (*MemoryStore, error) {
+	return openMemory(persistPath)
+}
+
+func openMemory(persistPath string) (*MemoryStore, error) {
+	s := &MemoryStore{persist: persistPath}
 	if persistPath == "" {
 		return s, nil
 	}
@@ -60,7 +94,7 @@ func Open(persistPath string) (*Store, error) {
 }
 
 // Save flushes to disk if persistence is enabled.
-func (s *Store) Save() error {
+func (s *MemoryStore) Save() error {
 	if s.persist == "" {
 		return nil
 	}
@@ -82,9 +116,14 @@ func (s *Store) Save() error {
 	return os.Rename(tmp, s.persist)
 }
 
+// Close is a no-op on MemoryStore. Defined to satisfy the Store
+// interface; future backends with open file handles or pooled
+// connections do real work here.
+func (s *MemoryStore) Close() error { return nil }
+
 // Replace atomically swaps all docs for the given file path.
 // Used after a file is (re)ingested.
-func (s *Store) Replace(path string, docs []Doc) {
+func (s *MemoryStore) Replace(path string, docs []Doc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.removeLocked(path)
@@ -95,13 +134,13 @@ func (s *Store) Replace(path string, docs []Doc) {
 }
 
 // Remove drops all docs for a given path.
-func (s *Store) Remove(path string) {
+func (s *MemoryStore) Remove(path string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.removeLocked(path)
 }
 
-func (s *Store) removeLocked(path string) {
+func (s *MemoryStore) removeLocked(path string) {
 	out := s.docs[:0]
 	for _, d := range s.docs {
 		if d.Path != path {
@@ -112,7 +151,7 @@ func (s *Store) removeLocked(path string) {
 }
 
 // Paths returns sorted unique file paths currently indexed.
-func (s *Store) Paths() []string {
+func (s *MemoryStore) Paths() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	seen := make(map[string]struct{}, len(s.docs))
@@ -128,7 +167,7 @@ func (s *Store) Paths() []string {
 }
 
 // Has reports whether any chunks exist for path.
-func (s *Store) Has(path string) bool {
+func (s *MemoryStore) Has(path string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, d := range s.docs {
@@ -141,7 +180,7 @@ func (s *Store) Has(path string) bool {
 
 // Search returns the top-k chunks by cosine similarity. queryVec is
 // normalized internally; callers don't have to.
-func (s *Store) Search(queryVec []float32, k int) []Result {
+func (s *MemoryStore) Search(queryVec []float32, k int) []Result {
 	if k <= 0 {
 		k = 8
 	}

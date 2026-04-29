@@ -63,7 +63,7 @@ type fileMeta struct {
 // Index is the long-running indexer.
 type Index struct {
 	cfg      Config
-	store    *store.Store
+	store    store.Store
 	embedder *embed.Client
 
 	mu       sync.Mutex
@@ -126,11 +126,18 @@ func Open(parent context.Context, cfg Config) (*Index, error) {
 	return i, nil
 }
 
-// Close stops the background loop and flushes the store to disk.
+// Close stops the background loop, flushes the store to disk, and
+// releases its resources. Save errors are returned; a Close error
+// is logged because there's nothing useful for the caller to do
+// about it on shutdown.
 func (i *Index) Close() error {
 	i.cancel()
 	i.wg.Wait()
-	return i.store.Save()
+	saveErr := i.store.Save()
+	if err := i.store.Close(); err != nil {
+		log.Printf("index: store close: %v", err)
+	}
+	return saveErr
 }
 
 // loop is the indexer's main loop. It tries fsnotify first (incremental,
