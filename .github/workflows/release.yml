@@ -17,12 +17,28 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Surface whether code-signing secrets are set so the sign job can gate
+    # on it. Job-level `if:` cannot reference `secrets.*` directly — that's
+    # a GitHub Actions validator restriction — so we route it through a job
+    # output instead.
+    outputs:
+      have-signing-secret: ${{ steps.check-signing.outputs.have }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+
+      - id: check-signing
+        env:
+          KV_URL: ${{ secrets.AZURE_KEY_VAULT_URL }}
+        run: |
+          if [ -n "$KV_URL" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: resolve version
         id: vars
@@ -99,7 +115,7 @@ jobs:
   # see docs/code-signing.md for the secret setup.
   sign:
     needs: release
-    if: ${{ secrets.AZURE_KEY_VAULT_URL != '' }}
+    if: ${{ needs.release.outputs.have-signing-secret == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

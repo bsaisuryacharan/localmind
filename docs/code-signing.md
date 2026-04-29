@@ -40,7 +40,11 @@ hardware token, no per-year renewal, no $300+ cost.
    | `AZURE_CERT_NAME`       | Cert name inside the vault, e.g. `localmind`     |
 
 4. Cut the next release as normal (`git tag vX.Y.Z && git push --tags`).
-   The `sign` job now matches its `if:` gate and runs after `release`.
+   The `release` job exposes a `have-signing-secret` output that flips
+   to `true` once `AZURE_KEY_VAULT_URL` is set; `sign` gates on that
+   output and runs after `release` finishes. (We can't reference
+   `secrets.*` in a job-level `if:` directly — GitHub Actions
+   disallows it — so the output indirection is the canonical pattern.)
 
 ### 2. Self-funded Authenticode cert
 
