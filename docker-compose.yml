@@ -53,6 +53,14 @@ services:
     volumes:
       - piper:/data
 
+  ocrmypdf:
+    <<: *restart
+    build:
+      context: ./ocrmypdf
+    container_name: localmind-ocr
+    ports:
+      - "${OCR_PORT:-9100}:8000"
+
   mcp:
     <<: *restart
     build:
@@ -60,6 +68,7 @@ services:
     container_name: localmind-mcp
     depends_on:
       - ollama
+      - ocrmypdf
     ports:
       - "${MCP_PORT:-7800}:7800"
     volumes:
@@ -70,6 +79,7 @@ services:
       DATA_DIR: /data
       INDEX_DIR: /var/lib/localmind
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-nomic-embed-text}"
+      OCR_BASE_URL: "${OCR_BASE_URL:-http://ocrmypdf:8000}"
 
 volumes:
   ollama:

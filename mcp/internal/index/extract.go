@@ -2,15 +2,25 @@ package index
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ledongthuc/pdf"
 )
+
+// ocrBaseURL is the OCR sidecar's HTTP endpoint. Set via the OCR_BASE_URL
+// env var; empty disables OCR fallback for local builds without docker.
+var ocrBaseURL = os.Getenv("OCR_BASE_URL")
+
+// ocrClient is shared so connection reuse helps with multi-PDF batches.
+var ocrClient = &http.Client{Timeout: 5 * time.Minute}
 
 // extractText returns the plain-text content of a file, dispatching by
 // extension. The returned string is what gets chunked + embedded.
@@ -46,7 +56,9 @@ func extractText(path string) (string, error) {
 }
 
 // extractPDF reads every page and concatenates the plain text. Layout is
-// preserved only loosely: pages are joined with a blank line.
+// preserved only loosely: pages are joined with a blank line. If the
+// extracted text is empty (image-only / scanned PDF) and an OCR sidecar
+// is configured via OCR_BASE_URL, fall through to ocrPDF.
 func extractPDF(path string) (string, error) {
 	f, r, err := pdf.Open(path)
 	if err != nil {
@@ -69,7 +81,44 @@ func extractPDF(path string) (string, error) {
 		sb.WriteString(text)
 		sb.WriteString("\n\n")
 	}
-	return sb.String(), nil
+	out := sb.String()
+	if strings.TrimSpace(out) != "" || ocrBaseURL == "" {
+		return out, nil
+	}
+	// Text layer was empty and OCR is configured; fall back. ocrPDF
+	// returns ("", err) on failure; we propagate so the caller can log
+	// and skip the file rather than silently indexing nothing.
+	return ocrPDF(path)
+}
+
+// ocrPDF POSTs the file to the OCR sidecar and returns the recovered
+// plain text. The sidecar runs ocrmypdf + pdftotext under the hood;
+// see ocrmypdf/server.py.
+func ocrPDF(path string) (string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("ocr: read pdf: %w", err)
+	}
+	url := strings.TrimRight(ocrBaseURL, "/") + "/v1/ocr"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("ocr: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/pdf")
+	resp, err := ocrClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ocr: post: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<14))
+		return "", fmt.Errorf("ocr: %s: %s", resp.Status, strings.TrimSpace(string(msg)))
+	}
+	text, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("ocr: read response: %w", err)
+	}
+	return string(text), nil
 }
 
 // docxBody is the minimal XML schema we need to walk in word/document.xml.
