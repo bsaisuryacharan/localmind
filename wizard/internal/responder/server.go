@@ -32,6 +32,12 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed manifest.json
+var manifestJSON []byte
+
+//go:embed icon.svg
+var iconSVG []byte
+
 // Config tunes the responder.
 type Config struct {
 	Addr        string        // listen address; default ":7900"
@@ -80,7 +86,15 @@ func New(cfg Config) *Server {
 	// /healthz stays open so external monitoring can liveness-check the
 	// responder without holding the token. Everything else goes through
 	// requireToken, which is a no-op when cfg.Token == "".
+	//
+	// /manifest.json and /icon.svg are also intentionally unauthenticated:
+	// phone OSes fetch the PWA manifest before the user is logged in (there
+	// is no auth header available at that point), so a 401-gated manifest
+	// would suppress the "Add to Home Screen" affordance on iOS / Android.
+	// Both endpoints serve only static, non-sensitive metadata.
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
+	s.mux.HandleFunc("/manifest.json", s.handleManifest)
+	s.mux.HandleFunc("/icon.svg", s.handleIcon)
 	s.mux.Handle("/status", requireToken(s.cfg.Token, http.HandlerFunc(s.handleStatus)))
 	s.mux.Handle("/wake", requireToken(s.cfg.Token, http.HandlerFunc(s.handleWake)))
 	s.mux.Handle("/", requireToken(s.cfg.Token, http.HandlerFunc(s.handleIndex)))
@@ -118,6 +132,24 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleManifest serves the PWA Web App Manifest. Must be unauthenticated:
+// the OS install-prompt path fetches it before any user-supplied token
+// could be attached.
+func (s *Server) handleManifest(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/manifest+json")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write(manifestJSON)
+}
+
+// handleIcon serves the app icon referenced by the manifest and the
+// apple-touch-icon link. Unauthenticated for the same reason as the
+// manifest itself.
+func (s *Server) handleIcon(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(iconSVG)
 }
 
 // handleIndex serves the embedded entry-point page. ServeMux's "/" pattern

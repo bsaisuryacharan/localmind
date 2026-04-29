@@ -135,7 +135,10 @@ localmind tunnel start 7900
 localmind tunnel status
 ```
 
-Save the URL on your phone's home screen. The phone always hits the
+Save the URL on your phone's home screen. After tapping "Add to Home
+Screen" on iOS or "Install app" on Android, the page opens in a
+standalone window with no browser chrome. The PWA manifest at
+`/manifest.json` declares the app metadata. The phone always hits the
 responder first; the responder either proxies you to a running stack
 or wakes one for you. With `keepalive on`, the laptop stays available
 indefinitely while plugged in.
