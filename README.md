@@ -10,7 +10,14 @@ That installs a single static binary, runs a setup wizard that detects your hard
 
 ## Demo
 
-> [Demo gif coming soon — see [issue #N] for tracking.]
+<!-- The gif renders here once recorded. See docs/demo.md for the
+     recording playbook; scripts/demo.sh is the script asciinema runs.
+     For now, see docs/walkthrough.md for a textual session. -->
+
+![](scripts/demo.gif)
+
+If the gif above is missing, see [docs/walkthrough.md](docs/walkthrough.md)
+for a textual walkthrough.
 
 ## What's in the box
 
