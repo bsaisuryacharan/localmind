@@ -47,4 +47,4 @@ Then in any Claude session: *"search my notes for last week's meeting decisions"
 - In-memory store; ~50K chunks fit in ~200 MB. Beyond that, swap in sqlite-vec.
 - Single embedding model per server. Switching models invalidates the index.
 - DOCX extraction skips drawings, charts, embedded images, headers, and footers — only paragraph text. Old `.doc` (binary) is not supported.
-- PDF extraction is plain text only — no OCR. Image-only / scanned PDFs index as empty.
+- PDFs without a text layer (scanned documents, photos saved as PDF) are routed to a small OCR sidecar (`ocrmypdf` + `tesseract` + `pdftotext`) at `OCR_BASE_URL` (default `http://ocrmypdf:8000` inside the compose network). Override with `OCR_BASE_URL` to disable (`OCR_BASE_URL=""`) or point at a remote sidecar. Expect several seconds per page; large scans can take minutes.
