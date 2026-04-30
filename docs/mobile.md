@@ -99,20 +99,14 @@ A genuinely sleeping laptop (S3 / hibernate) cannot run code; the CPU is
 off. Modern Standby (S0ix on Windows, similar on Linux/macOS) can run
 *lightweight* services on ~1–2 W of power but not GPU inference.
 
-The roadmap has a richer answer:
+**v0.2 has shipped.** See [docs/phone-from-anywhere.md](phone-from-anywhere.md)
+for the full Modern Standby setup: `localmind tunnel join` for
+peer-to-peer mode, `localmind responder install` (run elevated on
+Windows) for the Modern-Standby-aware service install, and the power
+settings checklist that gets a closed-lid laptop to wake on demand.
 
-1. **Lightweight responder service** registered with the OS as
-   background-capable. Stays alive in Modern Standby. Receives mobile
-   requests, queues them, wakes the rest of the stack via
-   `SetThreadExecutionState` (Windows) / `caffeinate -u` (macOS) /
-   `rtcwake` (Linux). Optionally answers from a tiny 1.5B draft model
-   while the heavy stack warms up.
-2. **Wake-on-LAN companion** for older hardware that only supports S3
-   sleep. A Raspberry Pi or tiny VPS receives the request, sends a WoL
-   packet to wake the laptop, queues the request, returns the answer.
-
-Neither has shipped yet. For now, `keepalive on` is the practical
-answer. Track progress in the GitHub issues tagged `mobile`.
+WoL companion path for older hardware that only supports S3 sleep is
+deferred to v0.3.
 
 ## Putting it together
 

@@ -32,6 +32,20 @@ for a textual walkthrough.
 
 Everything runs as containers. Nothing leaves your machine unless you opt in.
 
+## Privacy
+
+localmind is end-to-end encrypted between your phone and your laptop:
+
+- **No third party sees your traffic content.** Tailscale's WireGuard mesh
+  uses Curve25519 + ChaCha20-Poly1305; only the two endpoints have keys.
+- **Tailscale's coordination server sees public keys + connection times only.**
+  Never traffic content. For users who want zero third parties at all, see
+  [docs/headscale.md](docs/headscale.md) for the self-hosted alternative.
+- **Open WebUI's login** is a second layer; localmind layers a bearer token
+  on top via `LOCALMIND_RESPONDER_TOKEN`.
+
+See [docs/threat-model.md](docs/threat-model.md) for the full analysis.
+
 ## Architecture
 
 ```
@@ -55,7 +69,9 @@ curl -fsSL https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/inst
 # install (Windows PowerShell, run as Administrator)
 iwr -useb https://raw.githubusercontent.com/bsaisuryacharan/localmind/main/install.ps1 | iex
 
-# bring it up
+# initial setup + responder service install + bring it up
+localmind init
+localmind responder install   # host-side service; wakes the stack on demand (run elevated on Windows)
 localmind up
 
 # stop it
@@ -67,10 +83,8 @@ localmind backup ./localmind-backup.tar.zst
 # restore from an archive (destructive; prompts before overwriting)
 localmind restore ./localmind-backup.tar.zst
 
-# mobile access (your phone, anywhere)
-localmind responder install   # host-side service that wakes the stack on demand
-localmind keepalive on        # don't let the laptop sleep
-localmind tunnel start 7900   # publish via Tailscale Funnel; prints the URL
+# mobile access (your phone, anywhere) — peer-to-peer, end-to-end encrypted
+localmind tunnel join         # joins the laptop to your tailnet (no public URL)
 ```
 
 Open WebUI at http://localhost:3000 — or, if you ran `tunnel start`, at the
