@@ -30,7 +30,7 @@ func Responder(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "run":
-		return responderRun(ctx)
+		return responderRun(ctx, args[1:])
 	case "install":
 		return responderInstall(ctx)
 	case "uninstall":
@@ -49,7 +49,19 @@ func responderUsage() error {
 
 // responderRun blocks running the HTTP server. Wired so that POST /wake
 // triggers a `localmind up --no-profile` via the wizard.Up code path.
-func responderRun(ctx context.Context) error {
+//
+// If the args contain `--service`, the server is launched under the
+// platform's service-control machinery (Windows SCM today; a no-op error
+// elsewhere). Without the flag, the historical foreground behavior is
+// preserved.
+func responderRun(ctx context.Context, args []string) error {
+	asService := false
+	for _, a := range args {
+		if a == "--service" {
+			asService = true
+			break
+		}
+	}
 	srv := responder.New(responder.Config{
 		// Optional bearer token. If unset, the responder runs unauthenticated
 		// (historical behavior). If set, /status, /wake, and the HTML page
@@ -61,16 +73,22 @@ func responderRun(ctx context.Context) error {
 			return Up(c, []string{"--no-profile"})
 		},
 	})
+	if asService {
+		return responder.RunAsService(ctx, srv)
+	}
 	return srv.Run(ctx)
 }
 
 // --- install / uninstall / status -------------------------------------------
 
 const (
-	macServiceLabel = "dev.localmind.responder"
-	linuxUnitName   = "localmind-responder.service"
-	winRunValueName = "LocalmindResponder"
-	winRunKey       = `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+	macServiceLabel    = "dev.localmind.responder"
+	linuxUnitName      = "localmind-responder.service"
+	winRunValueName    = "LocalmindResponder"
+	winRunKey          = `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+	winServiceName     = "LocalmindResponder"
+	winServiceDispName = "localmind responder"
+	winServiceDesc     = "Wakes the localmind docker stack on demand from your phone"
 )
 
 func responderInstall(ctx context.Context) error {
@@ -94,6 +112,16 @@ func responderInstall(ctx context.Context) error {
 	case "linux":
 		return installSystemdUser(exe, root)
 	case "windows":
+		// Prefer a real Windows Service when we have admin rights (so the
+		// responder survives logout and runs during Modern Standby). When
+		// not elevated, fall back to the legacy HKCU\Run entry and tell the
+		// user how to upgrade.
+		if isElevatedWindows() {
+			return installWindowsService(exe, root)
+		}
+		fmt.Println("responder: service install requires admin; falling back to user-Run-key.")
+		fmt.Println("responder: note: Run-key install won't survive logout or run during Modern Standby.")
+		fmt.Println("responder: to upgrade later, re-run `localmind responder install` from an elevated terminal.")
 		return installWindowsRun(ctx, exe, root)
 	}
 	return fmt.Errorf("responder install: unsupported OS %s", runtime.GOOS)
@@ -106,7 +134,23 @@ func responderUninstall(ctx context.Context) error {
 	case "linux":
 		return uninstallSystemdUser()
 	case "windows":
-		return uninstallWindowsRun(ctx)
+		// We may have either form installed; clean up whichever exists.
+		// The service form is preferred / takes priority.
+		var firstErr error
+		if windowsServiceInstalled() {
+			if err := uninstallWindowsService(); err != nil {
+				firstErr = err
+			}
+		}
+		if windowsRunKeyInstalled() {
+			if err := uninstallWindowsRun(ctx); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if firstErr == nil && !windowsServiceInstalled() && !windowsRunKeyInstalled() {
+			fmt.Println("responder: not installed")
+		}
+		return firstErr
 	}
 	return fmt.Errorf("responder uninstall: unsupported OS %s", runtime.GOOS)
 }
@@ -118,6 +162,11 @@ func responderStatus(ctx context.Context) error {
 	case "linux":
 		return statusSystemdUser(ctx)
 	case "windows":
+		// Prefer reporting on the service if it exists; otherwise look
+		// at the legacy Run-key.
+		if windowsServiceInstalled() {
+			return statusWindowsService(ctx)
+		}
 		return statusWindowsRun(ctx)
 	}
 	return fmt.Errorf("responder status: unsupported OS %s", runtime.GOOS)
