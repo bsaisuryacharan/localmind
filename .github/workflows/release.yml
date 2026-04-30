@@ -40,6 +40,13 @@ jobs:
             echo "have=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: tidy wizard deps
+        working-directory: wizard
+        # Mirrors the CI workflow's `tidy wizard deps`. v0.2 brought the
+        # first external dep into the wizard module (golang.org/x/sys);
+        # without this step the cross-compile fails with malformed go.sum.
+        run: go mod tidy
+
       - name: resolve version
         id: vars
         run: |
