@@ -24,7 +24,7 @@ jobs:
     outputs:
       have-signing-secret: ${{ steps.check-signing.outputs.have }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
@@ -118,7 +118,7 @@ jobs:
     if: ${{ needs.release.outputs.have-signing-secret == 'true' }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: resolve version
         id: vars
