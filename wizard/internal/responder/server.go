@@ -24,6 +24,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -73,7 +74,15 @@ func New(cfg Config) *Server {
 		cfg.WebUIURL = "http://localhost:3000"
 	}
 	if cfg.WakeTimeout == 0 {
-		cfg.WakeTimeout = 60 * time.Second
+		// Windows needs a more generous wake budget because Docker Desktop
+		// itself can take tens of seconds to come back from a paused state
+		// (vmnetd / WSL backend) after Modern Standby resume. Unix daemons
+		// recover quickly so the historical 60s default still fits.
+		if runtime.GOOS == "windows" {
+			cfg.WakeTimeout = 90 * time.Second
+		} else {
+			cfg.WakeTimeout = 60 * time.Second
+		}
 	}
 	cfg.WebUIURL = strings.TrimRight(cfg.WebUIURL, "/")
 
@@ -197,6 +206,22 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.WakeTimeout)
 	defer cancel()
+
+	// Before we hand off to the singleflight-guarded WakeRunner (which
+	// shells out to `docker compose up`), make sure Docker Desktop is
+	// actually reachable. On Windows after Modern Standby (S0ix) resume,
+	// Docker Desktop's vmnetd/WSL backend can be paused; without this
+	// step `docker compose up` returns immediately with an error and the
+	// phone gets a 504 with no useful information. On unix this is a
+	// no-op.
+	if err := WakeDockerDesktop(ctx); err != nil {
+		writeJSON(w, http.StatusGatewayTimeout, map[string]any{
+			"woke":      false,
+			"error":     fmt.Sprintf("docker desktop did not become reachable: %v", err),
+			"webui_url": s.cfg.WebUIURL,
+		})
+		return
+	}
 
 	err := s.wake.Do(func() error {
 		log.Printf("responder: /wake — bringing stack up")

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/localmind/localmind/wizard/internal/responder"
 )
@@ -50,7 +51,7 @@ func responderUsage() error {
 // responderRun blocks running the HTTP server. Wired so that POST /wake
 // triggers a `localmind up --no-profile` via the wizard.Up code path.
 func responderRun(ctx context.Context) error {
-	srv := responder.New(responder.Config{
+	cfg := responder.Config{
 		// Optional bearer token. If unset, the responder runs unauthenticated
 		// (historical behavior). If set, /status, /wake, and the HTML page
 		// all require the token; /healthz stays open for monitoring.
@@ -60,7 +61,16 @@ func responderRun(ctx context.Context) error {
 			// than the wake budget so we always skip it here.
 			return Up(c, []string{"--no-profile"})
 		},
-	})
+	}
+	// Windows needs more headroom on /wake because Docker Desktop has to
+	// be unpaused (after Modern Standby resume) before `docker compose up`
+	// can succeed. Setting this here is belt-and-suspenders with the
+	// matching default in responder.New(); explicit at the wiring site
+	// makes the intent obvious to anyone reading responderRun.
+	if runtime.GOOS == "windows" {
+		cfg.WakeTimeout = 90 * time.Second
+	}
+	srv := responder.New(cfg)
 	return srv.Run(ctx)
 }
 
