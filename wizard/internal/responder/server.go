@@ -104,9 +104,14 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
 	s.mux.HandleFunc("/manifest.json", s.handleManifest)
 	s.mux.HandleFunc("/icon.svg", s.handleIcon)
-	s.mux.Handle("/status", requireToken(s.cfg.Token, http.HandlerFunc(s.handleStatus)))
-	s.mux.Handle("/wake", requireToken(s.cfg.Token, http.HandlerFunc(s.handleWake)))
-	s.mux.Handle("/", requireToken(s.cfg.Token, http.HandlerFunc(s.handleIndex)))
+	// Order: requireToken OUTERMOST, KeepAwakeMiddleware INSIDE it.
+	// We want unauthenticated requests to 401 without ever claiming a
+	// wake window — otherwise a noisy unauth scanner could keep the
+	// laptop awake. Auth-passing requests then claim the wake lock for
+	// the duration of the handler.
+	s.mux.Handle("/status", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleStatus))))
+	s.mux.Handle("/wake", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleWake))))
+	s.mux.Handle("/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleIndex))))
 	return s
 }
 
