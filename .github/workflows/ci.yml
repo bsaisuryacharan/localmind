@@ -18,6 +18,13 @@ jobs:
         with:
           go-version: "1.22"
           cache: true
+      - name: tidy wizard deps
+        working-directory: wizard
+        # Same rationale as `tidy mcp deps` below: populate any missing
+        # go.sum entries against the public sumdb. v0.2 brings the first
+        # external dep (golang.org/x/sys) for the Windows Service path,
+        # so wizard now needs the same treatment mcp has had.
+        run: go mod tidy
       - name: build wizard
         working-directory: wizard
         run: go build ./...

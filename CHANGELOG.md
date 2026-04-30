@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.2.0] — 2026-04-30
+
+<https://github.com/bsaisuryacharan/localmind/releases/tag/v0.2.0>
+
+### Added
+- `localmind tunnel join` — Tailscale peer-to-peer mode, the new default for mobile access. End-to-end WireGuard, no public URL, no third party in the data path. Replaces `tunnel start` (which is now an alias for the renamed `tunnel funnel`).
+- Windows Service responder install. `localmind responder install` (run elevated) registers a real Windows Service that survives logout and stays alive in Modern Standby (S0ix). Non-elevated runs fall back to the previous HKCU\Run mechanism with a warning.
+- Wake-Docker-Desktop on `/wake`. The responder now ensures Docker Desktop is reachable before invoking `docker compose up`. Bumps the wake budget on Windows from 60s to 90s to accommodate Docker Desktop's cold start.
+- Request-scoped wake-lock middleware on `/status`, `/wake`, and `/`. While any request is in flight, the OS is told to stay awake; when the last request finishes, the OS may sleep again. Replaces the always-on `keepalive` for the request path.
+- New docs: `docs/phone-from-anywhere.md` (end-to-end setup), `docs/threat-model.md` (privacy analysis), `docs/headscale.md` (zero-third-party self-hosted coord). README gains a "Privacy" section.
+
+### Changed
+- `localmind tunnel start` is deprecated in favor of `localmind tunnel join`. The old command still works but prints a deprecation note and forwards to `funnel` (which is the renamed Funnel mode).
+- Default tunnel mode is now peer-to-peer. Funnel is opt-in only.
+
+### Fixed
+- Responder no longer holds the system awake forever via `keepalive` for the request path. Wake-locks are scoped to in-flight requests only.
+
+### Notes
+- Modern Standby (S0ix) support is required on the laptop for the "phone wakes sleeping laptop" feature. Verify with `powercfg /a` on Windows. Older laptops with only S3 sleep need the WoL companion path, planned for v0.3.
+
 ## [v0.0.4] — 2026-04-29
 
 <https://github.com/bsaisuryacharan/localmind/releases/tag/v0.0.4>
