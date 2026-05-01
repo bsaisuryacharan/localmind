@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] — 2026-05-01
+
+<https://github.com/bsaisuryacharan/localmind/releases/tag/v0.3.0>
+
+### Added
+- **Agentic orchestration** as a Python sidecar container (`orchestrator/`). New `localmind agent run "<query>"` decomposes complex queries into parallel agent runs.
+- **Three complexity modes**: `direct` (no spawn), `light` (one specialist worker), `full` (3+ parallel workers). The classifier picks the mode from the user's query; trivial queries don't pay the multi-agent cost.
+- **Group-chat UX**: agents post terse status updates as named participants (`@researcher-1`, `@reviewer-1`, `@synthesizer`). Inter-agent handoffs visible via @-mentions. User can interject mid-flight with `@user: ...`. Live SSE-streamed in CLI and in the responder's `/agent` HTML page.
+- **Skills as markdown bundles**: `orchestrator/skills/<role>.md` with YAML frontmatter (recommended_model, tools whitelist, max_tool_calls). Five starter skills shipped: orchestrator, researcher, coder, reviewer, synthesizer.
+- **MCP as the only tool surface**: every agent's tool calls go through the localmind-mcp gateway. Default-deny per skill whitelist.
+- New responder routes: `/agent/run`, `/agent/stream/<id>`, `/agent/history/<id>`, `/agent/confirm/<id>`, `/agent/inject/<id>`, `/agent/cancel/<id>`. New `agent.html` page.
+- New CLI: `localmind agent run/list/show/cancel`. CLI renders the SSE stream as a Slack-style chat TUI with mid-flight stdin injection.
+
+### Notes
+- v0.3.0 is **single-tier** (workers don't spawn sub-workers). v0.3.2 adds multi-level hierarchy + budget enforcement.
+- v0.3.0 is **local-only** (no cloud APIs in the data path). v0.3.4 adds opt-in cloud per agent gated by data privacy markers.
+- v0.3.0 has **no persistence across responder restart**. v0.3.3 adds it, alongside Time Machine replay.
+
 ## [v0.2.0] — 2026-04-30
 
 <https://github.com/bsaisuryacharan/localmind/releases/tag/v0.2.0>
