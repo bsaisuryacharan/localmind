@@ -33,6 +33,9 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed agent.html
+var agentHTML []byte
+
 //go:embed manifest.json
 var manifestJSON []byte
 
@@ -49,6 +52,13 @@ type Config struct {
 	// matching bearer token (Authorization header or ?token=). /healthz is
 	// always open. Empty disables auth — the historical default.
 	Token string
+	// OrchestratorURL points at the Python orchestrator sidecar. The
+	// responder proxies /agent/* routes through to it. Default
+	// "http://localhost:7950"; override via LOCALMIND_ORCHESTRATOR_URL.
+	// The orchestrator is expected to bind 127.0.0.1 only — clients
+	// always reach it through the responder so they only need one URL
+	// and one token.
+	OrchestratorURL string
 }
 
 // WakeRunner brings the docker stack up. The default implementation shells
@@ -59,10 +69,11 @@ type WakeRunner func(ctx context.Context) error
 // Server bundles the HTTP server and its dependencies. Use Run for the
 // blocking entrypoint.
 type Server struct {
-	cfg    Config
-	mux    *http.ServeMux
-	wake   *singleFlight // ensures only one /wake at a time
-	probe  *http.Client
+	cfg   Config
+	mux   *http.ServeMux
+	wake  *singleFlight // ensures only one /wake at a time
+	probe *http.Client
+	orch  *OrchestratorClient // proxies /agent/* routes
 }
 
 // New constructs a Server. The caller MUST set cfg.WakeRunner.
@@ -85,12 +96,17 @@ func New(cfg Config) *Server {
 		}
 	}
 	cfg.WebUIURL = strings.TrimRight(cfg.WebUIURL, "/")
+	if cfg.OrchestratorURL == "" {
+		cfg.OrchestratorURL = "http://localhost:7950"
+	}
+	cfg.OrchestratorURL = strings.TrimRight(cfg.OrchestratorURL, "/")
 
 	s := &Server{
 		cfg:   cfg,
 		mux:   http.NewServeMux(),
 		wake:  &singleFlight{},
 		probe: &http.Client{Timeout: 3 * time.Second},
+		orch:  NewOrchestratorClient(cfg.OrchestratorURL),
 	}
 	// /healthz stays open so external monitoring can liveness-check the
 	// responder without holding the token. Everything else goes through
@@ -111,6 +127,16 @@ func New(cfg Config) *Server {
 	// the duration of the handler.
 	s.mux.Handle("/status", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleStatus))))
 	s.mux.Handle("/wake", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleWake))))
+	// /agent/* are the orchestrator-proxy routes. The trailing slash on
+	// the path-parameter routes lets ServeMux dispatch every
+	// /agent/stream/<id> to the same handler, where we parse the suffix.
+	s.mux.Handle("/agent", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentIndex))))
+	s.mux.Handle("/agent/run", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentRun))))
+	s.mux.Handle("/agent/stream/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentStream))))
+	s.mux.Handle("/agent/history/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentHistory))))
+	s.mux.Handle("/agent/confirm/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentConfirm))))
+	s.mux.Handle("/agent/inject/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentInject))))
+	s.mux.Handle("/agent/cancel/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleAgentCancel))))
 	s.mux.Handle("/", requireToken(s.cfg.Token, KeepAwakeMiddleware(http.HandlerFunc(s.handleIndex))))
 	return s
 }
@@ -278,6 +304,111 @@ func (s *Server) probeStack(ctx context.Context) bool {
 	// Open WebUI returns 200 on /; anything in 2xx-4xx counts as "the
 	// stack is alive even if the page wants auth".
 	return resp.StatusCode >= 200 && resp.StatusCode < 500
+}
+
+// handleAgentIndex serves the embedded chat-style viewer page. Same shape
+// as handleIndex: only an exact GET to /agent succeeds.
+func (s *Server) handleAgentIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/agent" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(agentHTML)
+}
+
+// handleAgentRun proxies POST /agent/run -> orchestrator POST /run. The
+// orchestrator returns {graph_id, mode}; we pass it through verbatim.
+func (s *Server) handleAgentRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	s.orch.PostRun(w, r)
+}
+
+// handleAgentStream proxies the SSE stream for a graph. The path is
+// /agent/stream/<graph_id> — we trim the prefix to extract the id.
+func (s *Server) handleAgentStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/agent/stream/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	// Set SSE headers BEFORE the proxy starts streaming so they go out
+	// with the first flush.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Disables proxy buffering on nginx-style intermediaries; harmless
+	// elsewhere. Aligns with what the orchestrator already sets, but
+	// belt-and-braces.
+	w.Header().Set("X-Accel-Buffering", "no")
+	s.orch.StreamGraph(w, r, id)
+}
+
+// handleAgentHistory proxies GET /agent/history/<id> -> orchestrator.
+func (s *Server) handleAgentHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/agent/history/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	s.orch.GetHistory(w, r, id)
+}
+
+// handleAgentConfirm proxies POST /agent/confirm/<id> -> orchestrator.
+func (s *Server) handleAgentConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/agent/confirm/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	s.orch.PostConfirm(w, r, id)
+}
+
+// handleAgentInject proxies POST /agent/inject/<id> -> orchestrator.
+func (s *Server) handleAgentInject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/agent/inject/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	s.orch.PostInject(w, r, id)
+}
+
+// handleAgentCancel proxies POST /agent/cancel/<id> -> orchestrator.
+func (s *Server) handleAgentCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/agent/cancel/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	s.orch.PostCancel(w, r, id)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

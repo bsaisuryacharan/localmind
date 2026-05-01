@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -272,4 +275,118 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ----- /agent/* tests -----
+
+func TestAgentIndex_Serves200(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, Config{WebUIURL: "http://127.0.0.1:1"})
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/agent", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type=%q want text/html prefix", ct)
+	}
+	if rr.Body.Len() == 0 {
+		t.Fatalf("body is empty; expected embedded agent.html")
+	}
+}
+
+func TestAgentRun_ProxiesUpstream(t *testing.T) {
+	t.Parallel()
+
+	var gotPath, gotMethod, gotBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"graph_id":"abc","mode":"plan"}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	s := newTestServer(t, Config{
+		WebUIURL:        "http://127.0.0.1:1",
+		OrchestratorURL: upstream.URL,
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/agent/run",
+		strings.NewReader(`{"query":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if gotPath != "/run" {
+		t.Fatalf("upstream path=%q want /run", gotPath)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("upstream method=%q want POST", gotMethod)
+	}
+	if gotBody != `{"query":"hello"}` {
+		t.Fatalf("upstream body=%q want %q", gotBody, `{"query":"hello"}`)
+	}
+	body := decodeJSON(t, rr)
+	if body["graph_id"] != "abc" {
+		t.Fatalf("response graph_id=%v want abc", body["graph_id"])
+	}
+	if body["mode"] != "plan" {
+		t.Fatalf("response mode=%v want plan", body["mode"])
+	}
+}
+
+func TestAgentStream_PropagatesSSE(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/stream/") {
+			t.Errorf("upstream got unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// Two SSE events, each 'data: <json>\n\n', flushed independently
+		// so the proxy has something to copy line-by-line.
+		fl, _ := w.(http.Flusher)
+		_, _ = fmt.Fprint(w, "data: {\"seq\":1,\"speaker\":\"@orchestrator\",\"body\":\"hi\"}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+		_, _ = fmt.Fprint(w, "data: {\"seq\":2,\"speaker\":\"@synthesizer\",\"body\":\"done\"}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	s := newTestServer(t, Config{
+		WebUIURL:        "http://127.0.0.1:1",
+		OrchestratorURL: upstream.URL,
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/agent/stream/xyz", nil)
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("Content-Type=%q want text/event-stream prefix", ct)
+	}
+	got := rr.Body.String()
+	if !strings.Contains(got, `"seq":1`) || !strings.Contains(got, `"seq":2`) {
+		t.Fatalf("missing one or both events in proxied stream; got:\n%s", got)
+	}
+	if !strings.Contains(got, "@orchestrator") || !strings.Contains(got, "@synthesizer") {
+		t.Fatalf("missing speaker tags in proxied stream; got:\n%s", got)
+	}
 }
