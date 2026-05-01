@@ -44,6 +44,8 @@ localmind is end-to-end encrypted between your phone and your laptop:
 - **Open WebUI's login** is a second layer; localmind layers a bearer token
   on top via `LOCALMIND_RESPONDER_TOKEN`.
 
+Agentic runs (v0.3.0+) are local-only by default — no cloud APIs in the data path. Cloud opt-in arrives in v0.3.4 with privacy-marker gating.
+
 See [docs/threat-model.md](docs/threat-model.md) for the full analysis.
 
 ## Architecture
@@ -55,6 +57,8 @@ See [docs/threat-model.md](docs/threat-model.md) for the full analysis.
 ```
 
 The responder is a tiny host-side HTTP service that always answers, even when the docker stack is cold; it wakes the stack on demand so the public URL stays stable. The wizard CLI (`localmind`) is the only host-side binary — it dispatches `docker compose`, manages the responder, and owns install/profile/backup. See [docs/architecture.md](docs/architecture.md) for the full picture.
+
+**Agentic orchestration (v0.3.0+):** localmind ships a Python sidecar that decomposes complex queries into parallel agent runs. Each agent is a markdown skill file; agents post terse status updates as named participants in a group-chat-style transcript. Local-only by default. See [docs/agentic.md](docs/agentic.md) and [docs/agentic-architecture.md](docs/agentic-architecture.md).
 
 ## Why
 
@@ -85,6 +89,9 @@ localmind restore ./localmind-backup.tar.zst
 
 # mobile access (your phone, anywhere) — peer-to-peer, end-to-end encrypted
 localmind tunnel join         # joins the laptop to your tailnet (no public URL)
+
+# multi-agent: decompose a complex query and run agents in parallel
+localmind agent run "Summarize every PDF in ./data and give me 3 follow-up questions per doc"
 ```
 
 Open WebUI at http://localhost:3000 — or, if you ran `tunnel start`, at the

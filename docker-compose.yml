@@ -81,8 +81,29 @@ services:
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-nomic-embed-text}"
       OCR_BASE_URL: "${OCR_BASE_URL:-http://ocrmypdf:8000}"
 
+  orchestrator:
+    <<: *restart
+    build:
+      context: ./orchestrator
+    container_name: localmind-orchestrator
+    depends_on:
+      - ollama
+      - mcp
+    # Bind to localhost only — the orchestrator is intentionally NOT
+    # exposed publicly. Reach it through the responder's /agent/* routes.
+    ports:
+      - "127.0.0.1:${ORCHESTRATOR_PORT:-7950}:7950"
+    volumes:
+      - orchestrator_state:/var/lib/localmind
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      LOCALMIND_MCP_URL: http://mcp:7800/mcp
+      LOCALMIND_MCP_TOKEN: "${LOCALMIND_MCP_TOKEN:-}"
+      LOCALMIND_ORCHESTRATOR_DB: /var/lib/localmind/orchestrator.db
+
 volumes:
   ollama:
   webui:
   piper:
   mcp_index:
+  orchestrator_state:
