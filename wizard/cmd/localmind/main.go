@@ -12,6 +12,7 @@
 //   tunnel     wrap `tailscale funnel` for mobile access
 //   keepalive  prevent the host from sleeping while the stack is up
 //   responder  host-side HTTP service that wakes the stack on demand
+//   agent      multi-agent orchestration (decompose + parallel + chat)
 //   version    print the localmind version
 package main
 
@@ -64,6 +65,8 @@ func main() {
 		mustRun(wizard.Keepalive(ctx, args))
 	case "responder":
 		mustRun(wizard.Responder(ctx, args))
+	case "agent":
+		mustRun(wizard.Agent(ctx, args))
 	case "-v", "--version", "version":
 		fmt.Printf("localmind %s\n", version)
 	case "-h", "--help", "help":
@@ -100,6 +103,7 @@ commands:
   tunnel      wrap tailscale funnel for mobile access
   keepalive   prevent the host from sleeping while the stack is up
   responder   host-side service that wakes the stack on demand
+  agent       multi-agent orchestration (decompose + parallel + chat)
   version     print the localmind version
 
 run 'localmind <command> -h' for command-specific flags.
